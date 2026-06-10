@@ -1,70 +1,11 @@
 import type { Mode, ModeConfig } from '../types/conversion';
+import conversionData from '../data/conversions.json';
 
-export const IMAGE_CONVERSION_MAP: Record<string, string[]> = {
-  '.png': ['.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tiff', '.svg', '.pdf', '.ico'],
-  '.jpg': ['.png', '.jpeg', '.webp', '.bmp', '.gif', '.tiff', '.svg', '.pdf', '.ico'],
-  '.jpeg': ['.png', '.jpg', '.webp', '.bmp', '.gif', '.tiff', '.svg', '.pdf', '.ico'],
-  '.webp': ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.svg', '.pdf', '.ico'],
-  '.bmp': ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.tiff', '.svg', '.pdf', '.ico'],
-  '.gif': ['.mp4', '.webp', '.zip', '.pdf'],
-  '.tiff': ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.svg', '.pdf', '.ico'],
-  '.tif': ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.svg', '.pdf', '.ico'],
-  '.svg': ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tiff', '.pdf', '.ico'],
-  '.heic': ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.tiff', '.svg', '.pdf', '.ico'],
-  '.ico': ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tiff', '.svg', '.pdf'],
-};
-
-export const IMAGE_TARGET_OPTIONS = [
-  { value: '.pdf', label: 'PDF' },
-  { value: '.png', label: 'PNG' },
-  { value: '.jpg', label: 'JPG' },
-  { value: '.jpeg', label: 'JPEG' },
-  { value: '.webp', label: 'WEBP' },
-  { value: '.bmp', label: 'BMP' },
-  { value: '.gif', label: 'GIF' },
-  { value: '.tiff', label: 'TIFF' },
-  { value: '.svg', label: 'SVG' },
-  { value: '.ico', label: 'ICO' },
-  { value: '.zip', label: 'PNG frames ZIP' },
-  { value: '.mp4', label: 'MP4' },
-];
-
-export const PDF_TARGET_OPTIONS = [
-  { value: '.docx', label: 'DOCX' },
-  { value: '.pptx', label: 'PPTX' },
-  { value: '.xlsx', label: 'XLSX' },
-  { value: '.txt', label: 'TXT' },
-  { value: '.html', label: 'HTML' },
-  { value: '.png', label: 'PNG page image' },
-  { value: '.jpg', label: 'JPG page image' },
-  { value: '.webp', label: 'WEBP page image' },
-  { value: '.svg', label: 'SVG page image' },
-  { value: '.zip', label: 'PNG pages ZIP' },
-  { value: 'compress', label: 'Compressed PDF' },
-  { value: 'split', label: 'Split PDFs ZIP' },
-  { value: 'merge', label: 'Merged PDF' },
-];
-
-export const DOCUMENT_CONVERSION_MAP: Record<string, string[]> = {
-  '.doc': ['.pdf', '.docx', '.odt', '.rtf', '.txt', '.html', '.md'],
-  '.docx': ['.pdf', '.odt', '.rtf', '.txt', '.html', '.md'],
-  '.odt': ['.pdf', '.docx', '.rtf', '.txt', '.html', '.md'],
-  '.rtf': ['.pdf', '.docx', '.odt', '.txt', '.html', '.md'],
-  '.txt': ['.pdf', '.docx', '.odt', '.rtf', '.html', '.md'],
-  '.md': ['.pdf', '.docx', '.odt', '.rtf', '.txt', '.html'],
-  '.html': ['.pdf', '.docx', '.odt', '.rtf', '.txt', '.md'],
-  '.htm': ['.pdf', '.docx', '.odt', '.rtf', '.txt', '.md'],
-};
-
-export const DOCUMENT_TARGET_OPTIONS = [
-  { value: '.pdf', label: 'PDF' },
-  { value: '.docx', label: 'DOCX' },
-  { value: '.odt', label: 'ODT' },
-  { value: '.rtf', label: 'RTF' },
-  { value: '.txt', label: 'TXT' },
-  { value: '.html', label: 'HTML' },
-  { value: '.md', label: 'MD' },
-];
+export const IMAGE_CONVERSION_MAP = conversionData.imageConversionMap as Record<string, string[]>;
+export const IMAGE_TARGET_OPTIONS = conversionData.imageTargetOptions;
+export const PDF_TARGET_OPTIONS = conversionData.pdfTargetOptions;
+export const DOCUMENT_CONVERSION_MAP = conversionData.documentConversionMap as Record<string, string[]>;
+export const DOCUMENT_TARGET_OPTIONS = conversionData.documentTargetOptions;
 
 export const MODE_CONFIG: Record<Mode, ModeConfig> = {
   pdf: {

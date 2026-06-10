@@ -21,6 +21,7 @@ import {
   getPdfTargetLabel,
 } from './lib/conversions';
 import { getFileExt, getIconForFile } from './lib/files';
+import { DEFAULT_SEO_PAGE, applySeoMetadata, getSeoPageForPath } from './lib/seo';
 import type { BatchBlob, ConversionItem, Mode } from './types/conversion';
 
 function makeId() {
@@ -28,10 +29,12 @@ function makeId() {
 }
 
 export function App() {
-  const [mode, setMode] = useState<Mode>('pdf');
-  const [imageTarget, setImageTarget] = useState('.pdf');
-  const [pdfTarget, setPdfTarget] = useState('.docx');
-  const [documentTarget, setDocumentTarget] = useState('.pdf');
+  const initialSeoPage = useMemo(() => getSeoPageForPath(window.location.pathname), []);
+  const [activeSeoPage, setActiveSeoPage] = useState(initialSeoPage);
+  const [mode, setMode] = useState<Mode>(initialSeoPage?.mode ?? 'pdf');
+  const [imageTarget, setImageTarget] = useState(initialSeoPage?.imageTarget ?? '.pdf');
+  const [pdfTarget, setPdfTarget] = useState(initialSeoPage?.pdfTarget ?? '.docx');
+  const [documentTarget, setDocumentTarget] = useState(initialSeoPage?.documentTarget ?? '.pdf');
   const [items, setItems] = useState<ConversionItem[]>([]);
   const [batchBlobs, setBatchBlobs] = useState<BatchBlob[]>([]);
   const [batchTotal, setBatchTotal] = useState(0);
@@ -52,9 +55,22 @@ export function App() {
           ? 'Processing'
           : 'Converting';
 
+  const uploadConfig = activeSeoPage
+    ? {
+        ...config,
+        accept: activeSeoPage.accept,
+        dropzoneTitle: activeSeoPage.dropzoneTitle,
+        supportedFormats: activeSeoPage.supportedFormats,
+      }
+    : config;
+
   useEffect(() => {
     document.body.className = bodyClassForMode(mode);
   }, [mode]);
+
+  useEffect(() => {
+    applySeoMetadata(activeSeoPage ?? DEFAULT_SEO_PAGE);
+  }, [activeSeoPage]);
 
   useEffect(() => {
     if (isProcessing && batchTotal > 0 && batchCompleted === batchTotal) {
@@ -81,10 +97,32 @@ export function App() {
     setIsProcessing(false);
   };
 
+  const clearSeoPage = () => {
+    if (!activeSeoPage) return;
+    setActiveSeoPage(null);
+    window.history.replaceState({}, '', '/');
+  };
+
   const changeMode = (nextMode: Mode) => {
     if (nextMode === mode) return;
     resetUi();
+    clearSeoPage();
     setMode(nextMode);
+  };
+
+  const changeImageTarget = (target: string) => {
+    clearSeoPage();
+    setImageTarget(target);
+  };
+
+  const changePdfTarget = (target: string) => {
+    clearSeoPage();
+    setPdfTarget(target);
+  };
+
+  const changeDocumentTarget = (target: string) => {
+    clearSeoPage();
+    setDocumentTarget(target);
   };
 
   const updateItem = (id: string, patch: Partial<ConversionItem>) => {
@@ -266,8 +304,22 @@ export function App() {
     files.forEach((file) => void uploadPdfToolFile(file, pdfTarget));
   };
 
+  const validateSeoRouteFiles = (files: File[]) => {
+    if (!activeSeoPage) return true;
+
+    const invalidFiles = files.filter((file) => !activeSeoPage.acceptedExts.includes(getFileExt(file)));
+    if (invalidFiles.length === 0) return true;
+
+    alert(
+      `${activeSeoPage.h1} accepts only ${activeSeoPage.supportedFormats.replace('Accepted format: ', '').toLowerCase()}. Invalid: ${invalidFiles.map((file) => file.name).join(', ')}`,
+    );
+    resetUi();
+    return false;
+  };
+
   const handleFiles = (files: File[]) => {
     if (files.length === 0) return;
+    if (!validateSeoRouteFiles(files)) return;
 
     resetUi();
     setBatchTotal(mode === 'pdf-tools' && pdfTarget === 'merge' ? 1 : files.length);
@@ -316,7 +368,7 @@ export function App() {
       <div className="blob blob-2" />
 
       <div className="container">
-        <Header subtitle={config.subtitle} />
+        <Header title={activeSeoPage?.h1 ?? DEFAULT_SEO_PAGE.h1} subtitle={activeSeoPage?.description ?? config.subtitle} />
 
         {!isProcessing && !showDownloads ? <ModeSwitcher mode={mode} onModeChange={changeMode} /> : null}
 
@@ -324,16 +376,16 @@ export function App() {
           <main>
             {isProcessing ? <ProgressBar completed={batchCompleted} total={batchTotal} actionWord={actionWord} /> : null}
             {!isProcessing && mode === 'documents' ? (
-              <DocumentTargetPanel target={documentTarget} onTargetChange={setDocumentTarget} />
+              <DocumentTargetPanel target={documentTarget} onTargetChange={changeDocumentTarget} />
             ) : null}
-            {!isProcessing && mode === 'pdf-tools' ? <PdfTargetPanel target={pdfTarget} onTargetChange={setPdfTarget} /> : null}
-            {!isProcessing && mode === 'image' ? <ImageTargetPanel target={imageTarget} onTargetChange={setImageTarget} /> : null}
+            {!isProcessing && mode === 'pdf-tools' ? <PdfTargetPanel target={pdfTarget} onTargetChange={changePdfTarget} /> : null}
+            {!isProcessing && mode === 'image' ? <ImageTargetPanel target={imageTarget} onTargetChange={changeImageTarget} /> : null}
             {!isProcessing ? (
               <UploadArea
-                accept={config.accept}
-                dropzoneIcon={config.dropzoneIcon}
-                dropzoneTitle={config.dropzoneTitle}
-                supportedFormats={config.supportedFormats}
+                accept={uploadConfig.accept}
+                dropzoneIcon={uploadConfig.dropzoneIcon}
+                dropzoneTitle={uploadConfig.dropzoneTitle}
+                supportedFormats={uploadConfig.supportedFormats}
                 onFilesSelected={handleFiles}
               />
             ) : null}
