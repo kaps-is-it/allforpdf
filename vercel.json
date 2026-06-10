@@ -1,0 +1,10 @@
+{
+  "framework": "vite",
+  "installCommand": "cd frontend && npm ci",
+  "buildCommand": "cd frontend && npm run build",
+  "outputDirectory": "frontend/dist",
+  "env": {
+    "VITE_API_BASE_URL": "https://kapsisit-allforpdf-api.hf.space",
+    "VITE_SITE_URL": "https://allforpdf.com"
+  }
+}
