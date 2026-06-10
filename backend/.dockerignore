@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+temp_conversions/
+test_matrix_artifacts/
+tests/

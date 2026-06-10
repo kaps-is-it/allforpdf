@@ -23,12 +23,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # runtime user's browser cache for notebook, SVG, HTML, and PDF rendering.
 RUN python -m playwright install-deps chromium
 
+RUN mkdir -p temp_conversions && chown -R user:user $HOME/app
+
 USER user
 RUN python -m playwright install chromium
 
 COPY --chown=user . .
-
-RUN mkdir -p temp_conversions
 
 EXPOSE 7860
 
