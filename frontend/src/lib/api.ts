@@ -1,6 +1,7 @@
 import { filenameFromDisposition, getOutputNameForImage } from './files';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
+const DEFAULT_API_BASE_URL = 'https://kapsisit-allforpdf-api.hf.space';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
 
 async function convertMultipart(endpoint: string, formData: FormData) {
   let response: Response;
@@ -14,7 +15,7 @@ async function convertMultipart(endpoint: string, formData: FormData) {
   }
 
   if (!response.ok) {
-    let message = 'Conversion failed';
+    let message = `Conversion server returned ${response.status}`;
     try {
       const error = await response.json();
       message = error.detail || message;
