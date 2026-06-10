@@ -24,16 +24,30 @@ export function DownloadCenter({
   onConvertMore,
   isZipping,
 }: DownloadCenterProps) {
+  const successCount = items.filter((item) => item.state === 'success').length;
+  const failedCount = items.filter((item) => item.state === 'error').length;
+  const hasDownloads = successCount > 0;
+  const title = hasDownloads ? (failedCount > 0 ? 'Conversion Finished' : 'Conversion Complete') : 'Conversion Failed';
+  const description = hasDownloads
+    ? failedCount > 0
+      ? `${successCount} file${successCount === 1 ? '' : 's'} converted. ${failedCount} failed.`
+      : heroText
+    : 'No files were converted. Review the failed file below and try again.';
+  const iconClass = hasDownloads ? 'bxs-check-shield' : 'bx-error-circle';
+  const zipLabel = failedCount > 0 ? 'Download Successful Files as ZIP' : 'Download All as ZIP';
+
   return (
     <section id="downloadCenter">
-      <div className="download-hero">
-        <i className="bx bxs-check-shield" />
-        <h2>Conversion Complete</h2>
-        <p>{heroText}</p>
-        <button className="btn-primary btn-massive" type="button" onClick={onDownloadAll} disabled={isZipping}>
-          <i className={`bx ${isZipping ? 'bx-loader-alt bx-spin' : 'bxs-file-archive'}`} />
-          {isZipping ? 'Zipping...' : 'Download All as ZIP'}
-        </button>
+      <div className={`download-hero ${hasDownloads ? '' : 'failed'}`}>
+        <i className={`bx ${iconClass}`} />
+        <h2>{title}</h2>
+        <p>{description}</p>
+        {hasDownloads ? (
+          <button className="btn-primary btn-massive" type="button" onClick={onDownloadAll} disabled={isZipping}>
+            <i className={`bx ${isZipping ? 'bx-loader-alt bx-spin' : 'bxs-file-archive'}`} />
+            {isZipping ? 'Zipping...' : zipLabel}
+          </button>
+        ) : null}
       </div>
 
       <div className="download-list-header">

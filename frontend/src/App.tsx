@@ -340,6 +340,11 @@ export function App() {
   };
 
   const downloadAll = async () => {
+    if (batchBlobs.length === 0) {
+      alert('No converted files are available to download.');
+      return;
+    }
+
     setIsZipping(true);
     try {
       const zip = new JSZip();

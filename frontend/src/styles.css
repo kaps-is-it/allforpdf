@@ -454,10 +454,22 @@ header h1 {
     margin-bottom: 2rem;
 }
 
-.download-hero i.bxs-check-shield {
+.download-hero.failed {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(139, 92, 246, 0.08));
+    border-color: rgba(239, 68, 68, 0.45);
+}
+
+.download-hero > i {
     font-size: 5rem;
-    color: var(--success);
     margin-bottom: 1rem;
+}
+
+.download-hero i.bxs-check-shield {
+    color: var(--success);
+}
+
+.download-hero i.bx-error-circle {
+    color: var(--error);
 }
 
 .btn-massive {

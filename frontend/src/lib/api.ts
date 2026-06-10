@@ -3,10 +3,15 @@ import { filenameFromDisposition, getOutputNameForImage } from './files';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
 async function convertMultipart(endpoint: string, formData: FormData) {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    method: 'POST',
-    body: formData,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      body: formData,
+    });
+  } catch {
+    throw new Error('Could not reach the conversion server. Please retry in a moment.');
+  }
 
   if (!response.ok) {
     let message = 'Conversion failed';
