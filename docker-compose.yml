@@ -1,0 +1,24 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      CONVERTI_ENV: production
+      CONVERTI_CORS_ORIGINS: ""
+    volumes:
+      - converti-temp:/app/temp_conversions
+    expose:
+      - "7860"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  converti-temp:
+

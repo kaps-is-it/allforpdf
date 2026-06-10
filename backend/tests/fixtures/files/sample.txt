@@ -1,0 +1,2 @@
+Converti plain text fixture
+Line two.
