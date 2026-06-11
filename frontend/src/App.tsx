@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import JSZip from 'jszip';
 
+import { AdSlot } from './components/AdSlot';
+import { ConverterIntro } from './components/ConverterIntro';
 import { DocumentTargetPanel } from './components/DocumentTargetPanel';
 import { DownloadCenter } from './components/DownloadCenter';
 import { FileCard } from './components/FileCard';
 import { Header } from './components/Header';
 import { ImageTargetPanel } from './components/ImageTargetPanel';
-import { ModeSwitcher } from './components/ModeSwitcher';
 import { PdfTargetPanel } from './components/PdfTargetPanel';
+import { PrivacyNotice } from './components/PrivacyNotice';
 import { ProgressBar } from './components/ProgressBar';
+import { ToolDirectory } from './components/ToolDirectory';
+import { ToolNavigator, type ToolPreset } from './components/ToolNavigator';
 import { UploadArea } from './components/UploadArea';
 import { convertDocument, convertImage, convertPagesToPngZip, convertPdf, convertToPdf, mergePdfFiles } from './lib/api';
 import {
@@ -27,6 +31,14 @@ import type { BatchBlob, ConversionItem, Mode } from './types/conversion';
 function makeId() {
   return crypto.randomUUID?.() ?? Math.random().toString(36).slice(2);
 }
+
+const MODE_LABELS: Record<Mode, string> = {
+  pdf: 'Convert to PDF',
+  documents: 'Document converter',
+  'pdf-tools': 'PDF tools',
+  image: 'Image converter',
+  'pptx-png': 'Page extractor',
+};
 
 export function App() {
   const initialSeoPage = useMemo(() => getSeoPageForPath(window.location.pathname), []);
@@ -84,6 +96,22 @@ export function App() {
   }, [batchCompleted, batchTotal, isProcessing]);
 
   const downloadItems = useMemo(() => items, [items]);
+  const outputLabel =
+    mode === 'documents'
+      ? getDocumentTargetLabel(documentTarget)
+      : mode === 'pdf-tools'
+        ? getPdfTargetLabel(pdfTarget)
+        : mode === 'image'
+          ? getImageTargetLabel(imageTarget)
+          : mode === 'pptx-png'
+            ? 'PNG pages ZIP'
+            : 'PDF';
+  const focusedRouteLabel = activeSeoPage?.h1.replace(/\s+Converter$/, '');
+  const converterIntroTitle = activeSeoPage ? 'Focused conversion setup' : 'Ready to convert';
+  const converterIntroDescription = activeSeoPage
+    ? 'This tool is already set for the page you opened. Upload matching files and download the result when processing finishes.'
+    : 'Choose a task from the toolbox, set the output when needed, then drop files into the converter.';
+  const showTargetControls = !isProcessing && !activeSeoPage;
 
   const resetUi = () => {
     items.forEach((item) => {
@@ -103,13 +131,6 @@ export function App() {
     window.history.replaceState({}, '', '/');
   };
 
-  const changeMode = (nextMode: Mode) => {
-    if (nextMode === mode) return;
-    resetUi();
-    clearSeoPage();
-    setMode(nextMode);
-  };
-
   const changeImageTarget = (target: string) => {
     clearSeoPage();
     setImageTarget(target);
@@ -123,6 +144,15 @@ export function App() {
   const changeDocumentTarget = (target: string) => {
     clearSeoPage();
     setDocumentTarget(target);
+  };
+
+  const selectTool = (preset: ToolPreset) => {
+    resetUi();
+    clearSeoPage();
+    setMode(preset.mode);
+    if (preset.imageTarget) setImageTarget(preset.imageTarget);
+    if (preset.pdfTarget) setPdfTarget(preset.pdfTarget);
+    if (preset.documentTarget) setDocumentTarget(preset.documentTarget);
   };
 
   const updateItem = (id: string, patch: Partial<ConversionItem>) => {
@@ -369,57 +399,92 @@ export function App() {
 
   return (
     <>
-      <div className="blob blob-1" />
-      <div className="blob blob-2" />
+      <div className="ambient-grid" />
+      <div className="page-shell">
+        <Header
+          title={activeSeoPage?.h1 ?? DEFAULT_SEO_PAGE.h1}
+          subtitle={activeSeoPage?.description ?? config.subtitle}
+          eyebrow={activeSeoPage ? 'Focused converter' : 'All-in-one file workspace'}
+        />
 
-      <div className="container">
-        <Header title={activeSeoPage?.h1 ?? DEFAULT_SEO_PAGE.h1} subtitle={activeSeoPage?.description ?? config.subtitle} />
+        <div className="workspace-layout">
+          <aside className="tool-sidebar">
+            <ToolNavigator
+              mode={mode}
+              imageTarget={imageTarget}
+              pdfTarget={pdfTarget}
+              documentTarget={documentTarget}
+              onToolSelect={selectTool}
+            />
+          </aside>
 
-        {!isProcessing && !showDownloads ? <ModeSwitcher mode={mode} onModeChange={changeMode} /> : null}
-
-        {!showDownloads ? (
-          <main>
-            {isProcessing ? <ProgressBar completed={batchCompleted} total={batchTotal} actionWord={actionWord} /> : null}
-            {!isProcessing && mode === 'documents' ? (
-              <DocumentTargetPanel target={documentTarget} onTargetChange={changeDocumentTarget} />
-            ) : null}
-            {!isProcessing && mode === 'pdf-tools' ? <PdfTargetPanel target={pdfTarget} onTargetChange={changePdfTarget} /> : null}
-            {!isProcessing && mode === 'image' ? <ImageTargetPanel target={imageTarget} onTargetChange={changeImageTarget} /> : null}
-            {!isProcessing ? (
-              <UploadArea
-                accept={uploadConfig.accept}
-                dropzoneIcon={uploadConfig.dropzoneIcon}
-                dropzoneTitle={uploadConfig.dropzoneTitle}
-                supportedFormats={uploadConfig.supportedFormats}
-                onFilesSelected={handleFiles}
+          <main className="workspace-main">
+            <section className="converter-panel">
+              <ConverterIntro
+                title={converterIntroTitle}
+                description={converterIntroDescription}
+                modeLabel={MODE_LABELS[mode]}
+                routeLabel={focusedRouteLabel}
+                outputLabel={`Output: ${outputLabel}`}
+                acceptedLabel={uploadConfig.supportedFormats}
               />
-            ) : null}
-            <div className="file-list">
-              {items.map((item) => (
-                <FileCard
-                  key={item.id}
-                  item={item}
+              <PrivacyNotice />
+
+              {!showDownloads ? (
+                <>
+                  {isProcessing ? <ProgressBar completed={batchCompleted} total={batchTotal} actionWord={actionWord} /> : null}
+                  {showTargetControls && mode === 'documents' ? (
+                    <DocumentTargetPanel target={documentTarget} onTargetChange={changeDocumentTarget} />
+                  ) : null}
+                  {showTargetControls && mode === 'pdf-tools' ? <PdfTargetPanel target={pdfTarget} onTargetChange={changePdfTarget} /> : null}
+                  {showTargetControls && mode === 'image' ? <ImageTargetPanel target={imageTarget} onTargetChange={changeImageTarget} /> : null}
+                  {!isProcessing ? (
+                    <UploadArea
+                      accept={uploadConfig.accept}
+                      dropzoneIcon={uploadConfig.dropzoneIcon}
+                      dropzoneTitle={uploadConfig.dropzoneTitle}
+                      supportedFormats={uploadConfig.supportedFormats}
+                      onFilesSelected={handleFiles}
+                    />
+                  ) : null}
+                  <div className="file-list">
+                    {items.map((item) => (
+                      <FileCard
+                        key={item.id}
+                        item={item}
+                        mode={mode}
+                        imageTarget={imageTarget}
+                        pdfTarget={pdfTarget}
+                        documentTarget={documentTarget}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <DownloadCenter
+                  items={downloadItems}
+                  heroText={config.heroText}
                   mode={mode}
                   imageTarget={imageTarget}
                   pdfTarget={pdfTarget}
                   documentTarget={documentTarget}
+                  onDownloadAll={downloadAll}
+                  onConvertMore={resetUi}
+                  isZipping={isZipping}
                 />
-              ))}
-            </div>
+              )}
+            </section>
+
+            <AdSlot variant="banner" label="Advertisement" />
           </main>
-        ) : (
-          <DownloadCenter
-            items={downloadItems}
-            heroText={config.heroText}
-            mode={mode}
-            imageTarget={imageTarget}
-            pdfTarget={pdfTarget}
-            documentTarget={documentTarget}
-            onDownloadAll={downloadAll}
-            onConvertMore={resetUi}
-            isZipping={isZipping}
-          />
-        )}
+
+          <aside className="ad-column" aria-label="Advertisement spaces">
+            <AdSlot variant="rail" label="Advertisement" />
+            <AdSlot variant="compact" label="Sponsored space" />
+          </aside>
+        </div>
+
+        {!isProcessing ? <ToolDirectory /> : null}
       </div>
     </>
   );

@@ -7,6 +7,7 @@ from typing import List
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.background import BackgroundTask
 
 from app.conversions.formats import (
     DOCUMENT_CONVERSION_MAP,
@@ -35,9 +36,19 @@ from app.conversions.services import (
     process_text_code_to_pdf,
 )
 from app.core.config import TEMP_DIR
-from app.core.files import make_temp_path, save_upload
+from app.core.files import cleanup_paths, make_temp_path, save_upload
 
 router = APIRouter(prefix="/api")
+
+
+def converted_file_response(path, filename, media_type, cleanup):
+    return FileResponse(
+        path=path,
+        filename=filename,
+        media_type=media_type,
+        headers={"Access-Control-Expose-Headers": "Content-Disposition"},
+        background=BackgroundTask(cleanup_paths, cleanup),
+    )
 
 
 @router.post("/convert")
@@ -70,15 +81,17 @@ async def convert_file(file: UploadFile = File(...)):
         if not output_path.exists():
             raise HTTPException(status_code=500, detail="Conversion failed: output file not generated")
 
-        return FileResponse(
+        return converted_file_response(
             path=output_path,
             filename=f"{Path(file.filename).stem}.pdf",
             media_type="application/pdf",
-            headers={"Access-Control-Expose-Headers": "Content-Disposition"},
+            cleanup=[input_path, output_path],
         )
     except HTTPException:
+        cleanup_paths([input_path, output_path])
         raise
     except Exception as e:
+        cleanup_paths([input_path, output_path])
         print(f"Error converting {file.filename}: {e}")
         return JSONResponse(status_code=500, content={"detail": str(e), "error": True})
 
@@ -130,6 +143,8 @@ async def convert_document_file(
     input_path = make_temp_path(input_ext)
     save_upload(file, input_path)
 
+    cleanup_candidates = [input_path]
+
     try:
         result = await process_document_conversion(
             str(input_path.resolve()),
@@ -142,15 +157,18 @@ async def convert_document_file(
         if not os.path.exists(result.path):
             raise HTTPException(status_code=500, detail="Conversion failed: output file not generated")
 
-        return FileResponse(
+        cleanup_candidates.append(result.path)
+        return converted_file_response(
             path=result.path,
             filename=result.filename,
             media_type=result.media_type,
-            headers={"Access-Control-Expose-Headers": "Content-Disposition"},
+            cleanup=cleanup_candidates,
         )
     except HTTPException:
+        cleanup_paths(cleanup_candidates)
         raise
     except Exception as e:
+        cleanup_paths(cleanup_candidates)
         print(f"Error converting document {file.filename}: {e}")
         return JSONResponse(status_code=500, content={"detail": str(e), "error": True})
 
@@ -174,6 +192,8 @@ async def convert_pdf_file(
     input_path = make_temp_path(".pdf")
     save_upload(file, input_path)
 
+    cleanup_candidates = [input_path]
+
     try:
         result = await process_pdf_conversion(
             str(input_path.resolve()),
@@ -185,15 +205,18 @@ async def convert_pdf_file(
         if not os.path.exists(result.path):
             raise HTTPException(status_code=500, detail="Conversion failed: output file not generated")
 
-        return FileResponse(
+        cleanup_candidates.append(result.path)
+        return converted_file_response(
             path=result.path,
             filename=result.filename,
             media_type=result.media_type,
-            headers={"Access-Control-Expose-Headers": "Content-Disposition"},
+            cleanup=cleanup_candidates,
         )
     except HTTPException:
+        cleanup_paths(cleanup_candidates)
         raise
     except Exception as e:
+        cleanup_paths(cleanup_candidates)
         print(f"Error converting PDF {file.filename}: {e}")
         return JSONResponse(status_code=500, content={"detail": str(e), "error": True})
 
@@ -225,15 +248,17 @@ async def merge_pdf_files(files: List[UploadFile] = File(...)):
         if not output_path.exists():
             raise HTTPException(status_code=500, detail="Merge failed: output file not generated")
 
-        return FileResponse(
+        return converted_file_response(
             path=output_path,
             filename=f"Converti_Merged_{len(files)}_files.pdf",
             media_type=PDF_MEDIA_TYPES[".pdf"],
-            headers={"Access-Control-Expose-Headers": "Content-Disposition"},
+            cleanup=[*input_paths, output_path],
         )
     except HTTPException:
+        cleanup_paths([*input_paths, output_path])
         raise
     except Exception as e:
+        cleanup_paths([*input_paths, output_path])
         print(f"Error merging PDFs: {e}")
         return JSONResponse(status_code=500, content={"detail": str(e), "error": True})
 
@@ -269,15 +294,17 @@ async def convert_image_file(
         if not os.path.exists(final_output_path):
             raise HTTPException(status_code=500, detail="Conversion failed: output file not generated")
 
-        return FileResponse(
+        return converted_file_response(
             path=final_output_path,
             filename=get_image_download_name(file.filename, target_ext),
             media_type=IMAGE_MEDIA_TYPES.get(target_ext, "application/octet-stream"),
-            headers={"Access-Control-Expose-Headers": "Content-Disposition"},
+            cleanup=[input_path, output_path, final_output_path],
         )
     except HTTPException:
+        cleanup_paths([input_path, output_path])
         raise
     except Exception as e:
+        cleanup_paths([input_path, output_path])
         print(f"Error converting image {file.filename}: {e}")
         return JSONResponse(status_code=500, content={"detail": str(e), "error": True})
 
@@ -297,12 +324,14 @@ async def convert_to_images(files: List[UploadFile] = File(...)):
             )
 
     generated_zips = []
+    cleanup_candidates = []
 
     try:
         for file in files:
             ext = Path(file.filename).suffix.lower()
             input_path = make_temp_path(ext)
             output_zip_path = TEMP_DIR / f"{uuid.uuid4()}_{Path(file.filename).stem}_slides.zip"
+            cleanup_candidates.extend([input_path, output_zip_path])
             save_upload(file, input_path)
 
             try:
@@ -317,6 +346,7 @@ async def convert_to_images(files: List[UploadFile] = File(...)):
 
                 generated_zips.append((file.filename, output_zip_path))
             except Exception as e:
+                cleanup_paths(cleanup_candidates)
                 print(f"Error converting {file.filename}: {e}")
                 return JSONResponse(
                     status_code=500,
@@ -325,27 +355,30 @@ async def convert_to_images(files: List[UploadFile] = File(...)):
 
         if len(generated_zips) == 1:
             orig_name, zip_path = generated_zips[0]
-            return FileResponse(
+            return converted_file_response(
                 path=zip_path,
                 filename=f"{Path(orig_name).stem}_pages.zip",
                 media_type="application/zip",
-                headers={"Access-Control-Expose-Headers": "Content-Disposition"},
+                cleanup=cleanup_candidates,
             )
 
         mega_zip_path = TEMP_DIR / f"{uuid.uuid4()}_all_slides.zip"
+        cleanup_candidates.append(mega_zip_path)
         with zipfile_module.ZipFile(str(mega_zip_path), 'w', zipfile_module.ZIP_DEFLATED) as mega:
             for index, (orig_name, zip_path) in enumerate(generated_zips, start=1):
                 inner_zip_name = f"{index:02d}_{Path(orig_name).stem}_slides.zip"
                 mega.write(str(zip_path), arcname=inner_zip_name)
 
-        return FileResponse(
+        return converted_file_response(
             path=mega_zip_path,
             filename=f"Converti_Pages_{len(generated_zips)}_files.zip",
             media_type="application/zip",
-            headers={"Access-Control-Expose-Headers": "Content-Disposition"},
+            cleanup=cleanup_candidates,
         )
     except HTTPException:
+        cleanup_paths(cleanup_candidates)
         raise
     except Exception as e:
+        cleanup_paths(cleanup_candidates)
         print(f"Error in batch PPTX conversion: {e}")
         return JSONResponse(status_code=500, content={"detail": str(e), "error": True})

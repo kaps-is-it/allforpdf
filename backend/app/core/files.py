@@ -1,6 +1,7 @@
 import shutil
 import uuid
 from pathlib import Path
+from typing import Iterable
 
 from fastapi import UploadFile
 
@@ -23,3 +24,17 @@ def save_upload(file: UploadFile, destination: Path):
         shutil.copyfileobj(file.file, buffer)
     return destination
 
+
+def cleanup_paths(paths: Iterable[Path | str | None]):
+    for path in paths:
+        if not path:
+            continue
+
+        target = Path(path)
+        try:
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            elif target.exists():
+                target.unlink()
+        except OSError as exc:
+            print(f"Unable to remove temporary file {target}: {exc}")
