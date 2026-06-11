@@ -15,9 +15,12 @@ pandas
 openpyxl
 python-docx
 python-pptx
+mobi
 xlrd>=2.0.1
 odfpy
 pymdown-extensions
 PyMuPDF
+PyYAML
+tomli
 pytest
 httpx

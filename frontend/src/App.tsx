@@ -2,27 +2,55 @@ import { useEffect, useMemo, useState } from 'react';
 import JSZip from 'jszip';
 
 import { AdSlot } from './components/AdSlot';
+import { ConversionSearch } from './components/ConversionSearch';
 import { ConverterIntro } from './components/ConverterIntro';
 import { DocumentTargetPanel } from './components/DocumentTargetPanel';
 import { DownloadCenter } from './components/DownloadCenter';
+import { EbookTargetPanel } from './components/EbookTargetPanel';
 import { FileCard } from './components/FileCard';
 import { Header } from './components/Header';
 import { ImageTargetPanel } from './components/ImageTargetPanel';
+import { NotebookTargetPanel } from './components/NotebookTargetPanel';
 import { PdfTargetPanel } from './components/PdfTargetPanel';
+import { PresentationTargetPanel } from './components/PresentationTargetPanel';
 import { PrivacyNotice } from './components/PrivacyNotice';
 import { ProgressBar } from './components/ProgressBar';
+import { SpreadsheetTargetPanel } from './components/SpreadsheetTargetPanel';
+import { TextDataTargetPanel } from './components/TextDataTargetPanel';
 import { ToolDirectory } from './components/ToolDirectory';
 import { ToolNavigator, type ToolPreset } from './components/ToolNavigator';
 import { UploadArea } from './components/UploadArea';
-import { convertDocument, convertImage, convertPagesToPngZip, convertPdf, convertToPdf, mergePdfFiles } from './lib/api';
+import {
+  convertDocument,
+  convertEbook,
+  convertImage,
+  convertNotebook,
+  convertPagesToPngZip,
+  convertPdf,
+  convertPresentation,
+  convertSpreadsheet,
+  convertTextData,
+  convertToPdf,
+  mergePdfFiles,
+} from './lib/api';
 import {
   bodyClassForMode,
   DOCUMENT_CONVERSION_MAP,
+  EBOOK_CONVERSION_MAP,
   IMAGE_CONVERSION_MAP,
   MODE_CONFIG,
+  NOTEBOOK_CONVERSION_MAP,
+  PRESENTATION_CONVERSION_MAP,
+  SPREADSHEET_CONVERSION_MAP,
+  TEXT_DATA_CONVERSION_MAP,
   getDocumentTargetLabel,
+  getEbookTargetLabel,
   getImageTargetLabel,
+  getNotebookTargetLabel,
   getPdfTargetLabel,
+  getPresentationTargetLabel,
+  getSpreadsheetTargetLabel,
+  getTextDataTargetLabel,
 } from './lib/conversions';
 import { getFileExt, getIconForFile } from './lib/files';
 import { DEFAULT_SEO_PAGE, applySeoMetadata, getSeoPageForPath } from './lib/seo';
@@ -35,8 +63,13 @@ function makeId() {
 const MODE_LABELS: Record<Mode, string> = {
   pdf: 'Convert to PDF',
   documents: 'Document converter',
+  spreadsheets: 'Spreadsheet converter',
+  'text-data': 'Text, code, and data converter',
+  notebooks: 'Notebook converter',
+  ebooks: 'eBook converter',
   'pdf-tools': 'PDF tools',
   image: 'Image converter',
+  presentations: 'Presentation converter',
   'pptx-png': 'Page extractor',
 };
 
@@ -47,6 +80,11 @@ export function App() {
   const [imageTarget, setImageTarget] = useState(initialSeoPage?.imageTarget ?? '.pdf');
   const [pdfTarget, setPdfTarget] = useState(initialSeoPage?.pdfTarget ?? '.docx');
   const [documentTarget, setDocumentTarget] = useState(initialSeoPage?.documentTarget ?? '.pdf');
+  const [presentationTarget, setPresentationTarget] = useState(initialSeoPage?.presentationTarget ?? '.pdf');
+  const [spreadsheetTarget, setSpreadsheetTarget] = useState(initialSeoPage?.spreadsheetTarget ?? '.pdf');
+  const [textDataTarget, setTextDataTarget] = useState(initialSeoPage?.textDataTarget ?? '.pdf');
+  const [notebookTarget, setNotebookTarget] = useState(initialSeoPage?.notebookTarget ?? '.pdf');
+  const [ebookTarget, setEbookTarget] = useState(initialSeoPage?.ebookTarget ?? '.epub');
   const [items, setItems] = useState<ConversionItem[]>([]);
   const [batchBlobs, setBatchBlobs] = useState<BatchBlob[]>([]);
   const [batchTotal, setBatchTotal] = useState(0);
@@ -61,8 +99,6 @@ export function App() {
       ? 'Extracting slides from'
       : mode === 'pdf-tools' && pdfTarget === 'merge'
         ? 'Merging'
-        : mode === 'documents'
-          ? 'Converting'
         : mode === 'pdf-tools'
           ? 'Processing'
           : 'Converting';
@@ -99,6 +135,16 @@ export function App() {
   const outputLabel =
     mode === 'documents'
       ? getDocumentTargetLabel(documentTarget)
+      : mode === 'spreadsheets'
+        ? getSpreadsheetTargetLabel(spreadsheetTarget)
+      : mode === 'text-data'
+        ? getTextDataTargetLabel(textDataTarget)
+      : mode === 'notebooks'
+        ? getNotebookTargetLabel(notebookTarget)
+      : mode === 'ebooks'
+        ? getEbookTargetLabel(ebookTarget)
+      : mode === 'presentations'
+        ? getPresentationTargetLabel(presentationTarget)
       : mode === 'pdf-tools'
         ? getPdfTargetLabel(pdfTarget)
         : mode === 'image'
@@ -146,6 +192,31 @@ export function App() {
     setDocumentTarget(target);
   };
 
+  const changeSpreadsheetTarget = (target: string) => {
+    clearSeoPage();
+    setSpreadsheetTarget(target);
+  };
+
+  const changeTextDataTarget = (target: string) => {
+    clearSeoPage();
+    setTextDataTarget(target);
+  };
+
+  const changeNotebookTarget = (target: string) => {
+    clearSeoPage();
+    setNotebookTarget(target);
+  };
+
+  const changeEbookTarget = (target: string) => {
+    clearSeoPage();
+    setEbookTarget(target);
+  };
+
+  const changePresentationTarget = (target: string) => {
+    clearSeoPage();
+    setPresentationTarget(target);
+  };
+
   const selectTool = (preset: ToolPreset) => {
     resetUi();
     clearSeoPage();
@@ -153,6 +224,11 @@ export function App() {
     if (preset.imageTarget) setImageTarget(preset.imageTarget);
     if (preset.pdfTarget) setPdfTarget(preset.pdfTarget);
     if (preset.documentTarget) setDocumentTarget(preset.documentTarget);
+    if (preset.presentationTarget) setPresentationTarget(preset.presentationTarget);
+    if (preset.spreadsheetTarget) setSpreadsheetTarget(preset.spreadsheetTarget);
+    if (preset.textDataTarget) setTextDataTarget(preset.textDataTarget);
+    if (preset.notebookTarget) setNotebookTarget(preset.notebookTarget);
+    if (preset.ebookTarget) setEbookTarget(preset.ebookTarget);
   };
 
   const updateItem = (id: string, patch: Partial<ConversionItem>) => {
@@ -231,6 +307,66 @@ export function App() {
     }
   };
 
+  const uploadSpreadsheetFile = async (file: File, targetExt: string) => {
+    const id = queueFile(file, `Converting to ${getSpreadsheetTargetLabel(targetExt)}...`);
+    try {
+      const result = await convertSpreadsheet(file, targetExt);
+      completeSuccess(id, result.blob, result.filename, 'Spreadsheet conversion complete!');
+    } catch (error) {
+      completeError(id, error instanceof Error ? error.message : 'Spreadsheet conversion failed');
+    } finally {
+      incrementCompleted();
+    }
+  };
+
+  const uploadTextDataFile = async (file: File, targetExt: string) => {
+    const id = queueFile(file, `Converting to ${getTextDataTargetLabel(targetExt)}...`);
+    try {
+      const result = await convertTextData(file, targetExt);
+      completeSuccess(id, result.blob, result.filename, 'Text/data conversion complete!');
+    } catch (error) {
+      completeError(id, error instanceof Error ? error.message : 'Text/data conversion failed');
+    } finally {
+      incrementCompleted();
+    }
+  };
+
+  const uploadNotebookFile = async (file: File, targetExt: string) => {
+    const id = queueFile(file, `Converting to ${getNotebookTargetLabel(targetExt)}...`);
+    try {
+      const result = await convertNotebook(file, targetExt);
+      completeSuccess(id, result.blob, result.filename, 'Notebook conversion complete!');
+    } catch (error) {
+      completeError(id, error instanceof Error ? error.message : 'Notebook conversion failed');
+    } finally {
+      incrementCompleted();
+    }
+  };
+
+  const uploadEbookFile = async (file: File, targetExt: string) => {
+    const id = queueFile(file, `Converting to ${getEbookTargetLabel(targetExt)}...`);
+    try {
+      const result = await convertEbook(file, targetExt);
+      completeSuccess(id, result.blob, result.filename, 'eBook conversion complete!');
+    } catch (error) {
+      completeError(id, error instanceof Error ? error.message : 'eBook conversion failed');
+    } finally {
+      incrementCompleted();
+    }
+  };
+
+  const uploadPresentationFile = async (file: File, targetExt: string) => {
+    const id = queueFile(file, `Converting to ${getPresentationTargetLabel(targetExt)}...`);
+    try {
+      const result = await convertPresentation(file, targetExt);
+      completeSuccess(id, result.blob, result.filename, 'Presentation conversion complete!');
+    } catch (error) {
+      completeError(id, error instanceof Error ? error.message : 'Presentation conversion failed');
+    } finally {
+      incrementCompleted();
+    }
+  };
+
   const uploadPdfToolFile = async (file: File, target: string) => {
     const id = queueFile(file, `Creating ${getPdfTargetLabel(target)}...`);
     try {
@@ -297,14 +433,89 @@ export function App() {
     files.forEach((file) => void uploadDocumentFile(file, documentTarget));
   };
 
-  const handlePptxFiles = (files: File[]) => {
+  const handleSpreadsheetFiles = (files: File[]) => {
     const invalidFiles = files.filter((file) => {
-      const name = file.name.toLowerCase();
-      return !['.pptx', '.pdf'].some((ext) => name.endsWith(ext));
+      const ext = getFileExt(file);
+      return !SPREADSHEET_CONVERSION_MAP[ext] || !SPREADSHEET_CONVERSION_MAP[ext].includes(spreadsheetTarget);
     });
 
     if (invalidFiles.length > 0) {
-      alert(`Only .pptx and .pdf files are supported in this mode. Invalid: ${invalidFiles.map((file) => file.name).join(', ')}`);
+      alert(`The selected target (${getSpreadsheetTargetLabel(spreadsheetTarget)}) is not available for: ${invalidFiles.map((file) => file.name).join(', ')}`);
+      resetUi();
+      return;
+    }
+
+    files.forEach((file) => void uploadSpreadsheetFile(file, spreadsheetTarget));
+  };
+
+  const handleTextDataFiles = (files: File[]) => {
+    const invalidFiles = files.filter((file) => {
+      const ext = getFileExt(file);
+      return !TEXT_DATA_CONVERSION_MAP[ext] || !TEXT_DATA_CONVERSION_MAP[ext].includes(textDataTarget);
+    });
+
+    if (invalidFiles.length > 0) {
+      alert(`The selected target (${getTextDataTargetLabel(textDataTarget)}) is not available for: ${invalidFiles.map((file) => file.name).join(', ')}`);
+      resetUi();
+      return;
+    }
+
+    files.forEach((file) => void uploadTextDataFile(file, textDataTarget));
+  };
+
+  const handleNotebookFiles = (files: File[]) => {
+    const invalidFiles = files.filter((file) => {
+      const ext = getFileExt(file);
+      return !NOTEBOOK_CONVERSION_MAP[ext] || !NOTEBOOK_CONVERSION_MAP[ext].includes(notebookTarget);
+    });
+
+    if (invalidFiles.length > 0) {
+      alert(`The selected target (${getNotebookTargetLabel(notebookTarget)}) is not available for: ${invalidFiles.map((file) => file.name).join(', ')}`);
+      resetUi();
+      return;
+    }
+
+    files.forEach((file) => void uploadNotebookFile(file, notebookTarget));
+  };
+
+  const handleEbookFiles = (files: File[]) => {
+    const invalidFiles = files.filter((file) => {
+      const ext = getFileExt(file);
+      return !EBOOK_CONVERSION_MAP[ext] || !EBOOK_CONVERSION_MAP[ext].includes(ebookTarget);
+    });
+
+    if (invalidFiles.length > 0) {
+      alert(`The selected target (${getEbookTargetLabel(ebookTarget)}) is not available for: ${invalidFiles.map((file) => file.name).join(', ')}`);
+      resetUi();
+      return;
+    }
+
+    files.forEach((file) => void uploadEbookFile(file, ebookTarget));
+  };
+
+  const handlePresentationFiles = (files: File[]) => {
+    const invalidFiles = files.filter((file) => {
+      const ext = getFileExt(file);
+      return !PRESENTATION_CONVERSION_MAP[ext] || !PRESENTATION_CONVERSION_MAP[ext].includes(presentationTarget);
+    });
+
+    if (invalidFiles.length > 0) {
+      alert(`The selected target (${getPresentationTargetLabel(presentationTarget)}) is not available for: ${invalidFiles.map((file) => file.name).join(', ')}`);
+      resetUi();
+      return;
+    }
+
+    files.forEach((file) => void uploadPresentationFile(file, presentationTarget));
+  };
+
+  const handlePptxFiles = (files: File[]) => {
+    const invalidFiles = files.filter((file) => {
+      const name = file.name.toLowerCase();
+      return !['.ppt', '.pptx', '.odp', '.pdf'].some((ext) => name.endsWith(ext));
+    });
+
+    if (invalidFiles.length > 0) {
+      alert(`Only .ppt, .pptx, .odp, and .pdf files are supported in this mode. Invalid: ${invalidFiles.map((file) => file.name).join(', ')}`);
       resetUi();
       return;
     }
@@ -360,6 +571,16 @@ export function App() {
       handleImageFiles(files);
     } else if (mode === 'documents') {
       handleDocumentFiles(files);
+    } else if (mode === 'spreadsheets') {
+      handleSpreadsheetFiles(files);
+    } else if (mode === 'text-data') {
+      handleTextDataFiles(files);
+    } else if (mode === 'notebooks') {
+      handleNotebookFiles(files);
+    } else if (mode === 'ebooks') {
+      handleEbookFiles(files);
+    } else if (mode === 'presentations') {
+      handlePresentationFiles(files);
     } else if (mode === 'pdf-tools') {
       handlePdfToolFiles(files);
     } else if (mode === 'pptx-png') {
@@ -406,6 +627,7 @@ export function App() {
           subtitle={activeSeoPage?.description ?? config.subtitle}
           eyebrow={activeSeoPage ? 'Focused converter' : 'All-in-one file workspace'}
         />
+        <ConversionSearch />
 
         <div className="workspace-layout">
           <aside className="tool-sidebar">
@@ -414,6 +636,11 @@ export function App() {
               imageTarget={imageTarget}
               pdfTarget={pdfTarget}
               documentTarget={documentTarget}
+              presentationTarget={presentationTarget}
+              spreadsheetTarget={spreadsheetTarget}
+              textDataTarget={textDataTarget}
+              notebookTarget={notebookTarget}
+              ebookTarget={ebookTarget}
               onToolSelect={selectTool}
             />
           </aside>
@@ -436,6 +663,21 @@ export function App() {
                   {showTargetControls && mode === 'documents' ? (
                     <DocumentTargetPanel target={documentTarget} onTargetChange={changeDocumentTarget} />
                   ) : null}
+                  {showTargetControls && mode === 'spreadsheets' ? (
+                    <SpreadsheetTargetPanel target={spreadsheetTarget} onTargetChange={changeSpreadsheetTarget} />
+                  ) : null}
+                  {showTargetControls && mode === 'text-data' ? (
+                    <TextDataTargetPanel target={textDataTarget} onTargetChange={changeTextDataTarget} />
+                  ) : null}
+                  {showTargetControls && mode === 'notebooks' ? (
+                    <NotebookTargetPanel target={notebookTarget} onTargetChange={changeNotebookTarget} />
+                  ) : null}
+                  {showTargetControls && mode === 'ebooks' ? (
+                    <EbookTargetPanel target={ebookTarget} onTargetChange={changeEbookTarget} />
+                  ) : null}
+                  {showTargetControls && mode === 'presentations' ? (
+                    <PresentationTargetPanel target={presentationTarget} onTargetChange={changePresentationTarget} />
+                  ) : null}
                   {showTargetControls && mode === 'pdf-tools' ? <PdfTargetPanel target={pdfTarget} onTargetChange={changePdfTarget} /> : null}
                   {showTargetControls && mode === 'image' ? <ImageTargetPanel target={imageTarget} onTargetChange={changeImageTarget} /> : null}
                   {!isProcessing ? (
@@ -456,6 +698,11 @@ export function App() {
                         imageTarget={imageTarget}
                         pdfTarget={pdfTarget}
                         documentTarget={documentTarget}
+                        presentationTarget={presentationTarget}
+                        spreadsheetTarget={spreadsheetTarget}
+                        textDataTarget={textDataTarget}
+                        notebookTarget={notebookTarget}
+                        ebookTarget={ebookTarget}
                       />
                     ))}
                   </div>
@@ -468,6 +715,11 @@ export function App() {
                   imageTarget={imageTarget}
                   pdfTarget={pdfTarget}
                   documentTarget={documentTarget}
+                  presentationTarget={presentationTarget}
+                  spreadsheetTarget={spreadsheetTarget}
+                  textDataTarget={textDataTarget}
+                  notebookTarget={notebookTarget}
+                  ebookTarget={ebookTarget}
                   onDownloadAll={downloadAll}
                   onConvertMore={resetUi}
                   isZipping={isZipping}

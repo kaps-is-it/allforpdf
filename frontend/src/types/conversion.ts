@@ -1,4 +1,14 @@
-export type Mode = 'pdf' | 'documents' | 'pdf-tools' | 'image' | 'pptx-png';
+export type Mode =
+  | 'pdf'
+  | 'documents'
+  | 'spreadsheets'
+  | 'text-data'
+  | 'notebooks'
+  | 'ebooks'
+  | 'pdf-tools'
+  | 'image'
+  | 'presentations'
+  | 'pptx-png';
 
 export type ConversionState = 'processing' | 'success' | 'error';
 

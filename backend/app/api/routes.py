@@ -13,26 +13,46 @@ from app.conversions.formats import (
     DOCUMENT_CONVERSION_MAP,
     DOCUMENT_OUTPUT_TARGETS,
     DOCUMENT_MEDIA_TYPES,
+    EBOOK_CONVERSION_MAP,
+    EBOOK_OUTPUT_TARGETS,
     IMAGE_CONVERSION_MAP,
     IMAGE_MEDIA_TYPES,
+    NOTEBOOK_CONVERSION_MAP,
+    NOTEBOOK_OUTPUT_TARGETS,
     PDF_CONVERSION_TARGETS,
     PDF_MEDIA_TYPES,
+    PRESENTATION_CONVERSION_MAP,
+    PRESENTATION_OUTPUT_TARGETS,
+    SPREADSHEET_CONVERSION_MAP,
+    SPREADSHEET_OUTPUT_TARGETS,
+    TEXT_DATA_CONVERSION_MAP,
+    TEXT_DATA_OUTPUT_TARGETS,
     get_document_download_name,
     get_image_download_name,
     normalize_image_extension,
     normalize_document_target,
+    normalize_ebook_target,
+    normalize_notebook_target,
     normalize_pdf_target,
+    normalize_presentation_target,
+    normalize_spreadsheet_target,
+    normalize_text_data_target,
 )
 from app.conversions.services import (
     process_document_conversion,
     process_document_to_images,
+    process_ebook_conversion,
     process_image_conversion,
     process_image_to_pdf,
     process_ipynb_to_pdf,
+    process_notebook_conversion,
     process_office_to_pdf,
     process_pdf_conversion,
     process_pdf_merge,
+    process_presentation_conversion,
+    process_spreadsheet_conversion,
     process_spreadsheet_to_pdf,
+    process_text_data_conversion,
     process_text_code_to_pdf,
 )
 from app.core.config import TEMP_DIR
@@ -68,11 +88,28 @@ async def convert_file(file: UploadFile = File(...)):
             libreoffice_out = await process_office_to_pdf(str(input_path.resolve()), str(TEMP_DIR.resolve()))
             if os.path.exists(libreoffice_out) and libreoffice_out != str(output_path.resolve()):
                 shutil.move(libreoffice_out, output_path)
-        elif ext in ['.xls', '.xlsx', '.csv', '.ods']:
+        elif ext in ['.xls', '.xlsx', '.csv', '.ods', '.tsv']:
             await process_spreadsheet_to_pdf(str(input_path.resolve()), str(output_path.resolve()), ext)
         elif ext == '.ipynb':
             await process_ipynb_to_pdf(str(input_path.resolve()), str(output_path.resolve()))
-        elif ext in ['.txt', '.md', '.py', '.js', '.c', '.cpp', '.java', '.html', '.htm', '.css', '.json']:
+        elif ext in [
+            '.txt',
+            '.md',
+            '.py',
+            '.js',
+            '.ts',
+            '.c',
+            '.cpp',
+            '.java',
+            '.html',
+            '.htm',
+            '.css',
+            '.json',
+            '.xml',
+            '.yaml',
+            '.yml',
+            '.toml',
+        ]:
             text_ext = '.html' if ext == '.htm' else ext
             await process_text_code_to_pdf(str(input_path.resolve()), str(output_path.resolve()), text_ext)
         else:
@@ -124,6 +161,246 @@ async def document_conversions():
     }
 
 
+@router.get("/presentation-conversions")
+async def presentation_conversions():
+    return {
+        "inputs": sorted(PRESENTATION_CONVERSION_MAP.keys()),
+        "outputs": PRESENTATION_OUTPUT_TARGETS,
+        "conversions": PRESENTATION_CONVERSION_MAP,
+    }
+
+
+@router.get("/spreadsheet-conversions")
+async def spreadsheet_conversions():
+    return {
+        "inputs": sorted(SPREADSHEET_CONVERSION_MAP.keys()),
+        "outputs": SPREADSHEET_OUTPUT_TARGETS,
+        "conversions": SPREADSHEET_CONVERSION_MAP,
+    }
+
+
+@router.get("/text-data-conversions")
+async def text_data_conversions():
+    return {
+        "inputs": sorted(TEXT_DATA_CONVERSION_MAP.keys()),
+        "outputs": TEXT_DATA_OUTPUT_TARGETS,
+        "conversions": TEXT_DATA_CONVERSION_MAP,
+    }
+
+
+@router.get("/notebook-conversions")
+async def notebook_conversions():
+    return {
+        "inputs": sorted(NOTEBOOK_CONVERSION_MAP.keys()),
+        "outputs": NOTEBOOK_OUTPUT_TARGETS,
+        "conversions": NOTEBOOK_CONVERSION_MAP,
+    }
+
+
+@router.get("/ebook-conversions")
+async def ebook_conversions():
+    return {
+        "inputs": sorted(EBOOK_CONVERSION_MAP.keys()),
+        "outputs": EBOOK_OUTPUT_TARGETS,
+        "conversions": EBOOK_CONVERSION_MAP,
+    }
+
+
+@router.post("/convert-notebook")
+async def convert_notebook_file(
+    file: UploadFile = File(...),
+    target_format: str = Form(...),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    input_ext = Path(file.filename).suffix.lower()
+    target_ext = normalize_notebook_target(target_format)
+
+    if input_ext not in NOTEBOOK_CONVERSION_MAP:
+        raise HTTPException(status_code=400, detail=f"Unsupported notebook type: {input_ext}")
+    if target_ext not in NOTEBOOK_CONVERSION_MAP[input_ext]:
+        raise HTTPException(status_code=400, detail=f"Unsupported notebook conversion: {input_ext} to {target_ext}")
+
+    input_path = make_temp_path(input_ext)
+    save_upload(file, input_path)
+
+    cleanup_candidates = [input_path]
+
+    try:
+        result = await process_notebook_conversion(
+            str(input_path.resolve()),
+            str(TEMP_DIR.resolve()),
+            file.filename,
+            target_ext,
+        )
+
+        if not os.path.exists(result.path):
+            raise HTTPException(status_code=500, detail="Conversion failed: output file not generated")
+
+        cleanup_candidates.append(result.path)
+        return converted_file_response(
+            path=result.path,
+            filename=result.filename,
+            media_type=result.media_type,
+            cleanup=cleanup_candidates,
+        )
+    except HTTPException:
+        cleanup_paths(cleanup_candidates)
+        raise
+    except Exception as e:
+        cleanup_paths(cleanup_candidates)
+        print(f"Error converting notebook {file.filename}: {e}")
+        return JSONResponse(status_code=500, content={"detail": str(e), "error": True})
+
+
+@router.post("/convert-ebook")
+async def convert_ebook_file(
+    file: UploadFile = File(...),
+    target_format: str = Form(...),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    input_ext = Path(file.filename).suffix.lower()
+    target_ext = normalize_ebook_target(target_format)
+
+    if input_ext not in EBOOK_CONVERSION_MAP:
+        raise HTTPException(status_code=400, detail=f"Unsupported eBook type: {input_ext}")
+    if target_ext not in EBOOK_CONVERSION_MAP[input_ext]:
+        raise HTTPException(status_code=400, detail=f"Unsupported eBook conversion: {input_ext} to {target_ext}")
+
+    input_path = make_temp_path(input_ext)
+    save_upload(file, input_path)
+
+    cleanup_candidates = [input_path]
+
+    try:
+        result = await process_ebook_conversion(
+            str(input_path.resolve()),
+            str(TEMP_DIR.resolve()),
+            file.filename,
+            input_ext,
+            target_ext,
+        )
+
+        if not os.path.exists(result.path):
+            raise HTTPException(status_code=500, detail="Conversion failed: output file not generated")
+
+        cleanup_candidates.append(result.path)
+        return converted_file_response(
+            path=result.path,
+            filename=result.filename,
+            media_type=result.media_type,
+            cleanup=cleanup_candidates,
+        )
+    except HTTPException:
+        cleanup_paths(cleanup_candidates)
+        raise
+    except Exception as e:
+        cleanup_paths(cleanup_candidates)
+        print(f"Error converting eBook {file.filename}: {e}")
+        return JSONResponse(status_code=500, content={"detail": str(e), "error": True})
+
+
+@router.post("/convert-spreadsheet")
+async def convert_spreadsheet_file(
+    file: UploadFile = File(...),
+    target_format: str = Form(...),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    input_ext = Path(file.filename).suffix.lower()
+    target_ext = normalize_spreadsheet_target(target_format)
+
+    if input_ext not in SPREADSHEET_CONVERSION_MAP:
+        raise HTTPException(status_code=400, detail=f"Unsupported spreadsheet type: {input_ext}")
+    if target_ext not in SPREADSHEET_CONVERSION_MAP[input_ext]:
+        raise HTTPException(status_code=400, detail=f"Unsupported spreadsheet conversion: {input_ext} to {target_ext}")
+
+    input_path = make_temp_path(input_ext)
+    save_upload(file, input_path)
+
+    cleanup_candidates = [input_path]
+
+    try:
+        result = await process_spreadsheet_conversion(
+            str(input_path.resolve()),
+            str(TEMP_DIR.resolve()),
+            file.filename,
+            input_ext,
+            target_ext,
+        )
+
+        if not os.path.exists(result.path):
+            raise HTTPException(status_code=500, detail="Conversion failed: output file not generated")
+
+        cleanup_candidates.append(result.path)
+        return converted_file_response(
+            path=result.path,
+            filename=result.filename,
+            media_type=result.media_type,
+            cleanup=cleanup_candidates,
+        )
+    except HTTPException:
+        cleanup_paths(cleanup_candidates)
+        raise
+    except Exception as e:
+        cleanup_paths(cleanup_candidates)
+        print(f"Error converting spreadsheet {file.filename}: {e}")
+        return JSONResponse(status_code=500, content={"detail": str(e), "error": True})
+
+
+@router.post("/convert-text-data")
+async def convert_text_data_file(
+    file: UploadFile = File(...),
+    target_format: str = Form(...),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    input_ext = Path(file.filename).suffix.lower()
+    target_ext = normalize_text_data_target(target_format)
+
+    if input_ext not in TEXT_DATA_CONVERSION_MAP:
+        raise HTTPException(status_code=400, detail=f"Unsupported text/data type: {input_ext}")
+    if target_ext not in TEXT_DATA_CONVERSION_MAP[input_ext]:
+        raise HTTPException(status_code=400, detail=f"Unsupported text/data conversion: {input_ext} to {target_ext}")
+
+    input_path = make_temp_path(input_ext)
+    save_upload(file, input_path)
+
+    cleanup_candidates = [input_path]
+
+    try:
+        result = await process_text_data_conversion(
+            str(input_path.resolve()),
+            str(TEMP_DIR.resolve()),
+            file.filename,
+            input_ext,
+            target_ext,
+        )
+
+        if not os.path.exists(result.path):
+            raise HTTPException(status_code=500, detail="Conversion failed: output file not generated")
+
+        cleanup_candidates.append(result.path)
+        return converted_file_response(
+            path=result.path,
+            filename=result.filename,
+            media_type=result.media_type,
+            cleanup=cleanup_candidates,
+        )
+    except HTTPException:
+        cleanup_paths(cleanup_candidates)
+        raise
+    except Exception as e:
+        cleanup_paths(cleanup_candidates)
+        print(f"Error converting text/data {file.filename}: {e}")
+        return JSONResponse(status_code=500, content={"detail": str(e), "error": True})
+
+
 @router.post("/convert-document")
 async def convert_document_file(
     file: UploadFile = File(...),
@@ -170,6 +447,55 @@ async def convert_document_file(
     except Exception as e:
         cleanup_paths(cleanup_candidates)
         print(f"Error converting document {file.filename}: {e}")
+        return JSONResponse(status_code=500, content={"detail": str(e), "error": True})
+
+
+@router.post("/convert-presentation")
+async def convert_presentation_file(
+    file: UploadFile = File(...),
+    target_format: str = Form(...),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    input_ext = Path(file.filename).suffix.lower()
+    target_ext = normalize_presentation_target(target_format)
+
+    if input_ext not in PRESENTATION_CONVERSION_MAP:
+        raise HTTPException(status_code=400, detail=f"Unsupported presentation type: {input_ext}")
+    if target_ext not in PRESENTATION_CONVERSION_MAP[input_ext]:
+        raise HTTPException(status_code=400, detail=f"Unsupported presentation conversion: {input_ext} to {target_ext}")
+
+    input_path = make_temp_path(input_ext)
+    save_upload(file, input_path)
+
+    cleanup_candidates = [input_path]
+
+    try:
+        result = await process_presentation_conversion(
+            str(input_path.resolve()),
+            str(TEMP_DIR.resolve()),
+            file.filename,
+            input_ext,
+            target_ext,
+        )
+
+        if not os.path.exists(result.path):
+            raise HTTPException(status_code=500, detail="Conversion failed: output file not generated")
+
+        cleanup_candidates.append(result.path)
+        return converted_file_response(
+            path=result.path,
+            filename=result.filename,
+            media_type=result.media_type,
+            cleanup=cleanup_candidates,
+        )
+    except HTTPException:
+        cleanup_paths(cleanup_candidates)
+        raise
+    except Exception as e:
+        cleanup_paths(cleanup_candidates)
+        print(f"Error converting presentation {file.filename}: {e}")
         return JSONResponse(status_code=500, content={"detail": str(e), "error": True})
 
 
@@ -314,13 +640,13 @@ async def convert_to_images(files: List[UploadFile] = File(...)):
     if not files or all(f.filename == '' for f in files):
         raise HTTPException(status_code=400, detail="No files provided")
 
-    allowed_exts = {'.pptx', '.pdf'}
+    allowed_exts = {'.ppt', '.pptx', '.odp', '.pdf'}
     for f in files:
         ext = Path(f.filename).suffix.lower()
         if ext not in allowed_exts:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported file type '{ext}' for '{f.filename}'. Only .pptx and .pdf files are accepted.",
+                detail=f"Unsupported file type '{ext}' for '{f.filename}'. Only .ppt, .pptx, .odp, and .pdf files are accepted.",
             )
 
     generated_zips = []

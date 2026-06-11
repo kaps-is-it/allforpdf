@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 # Install system dependencies for document conversion and browser rendering.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    calibre \
     libreoffice \
     fonts-liberation \
     fonts-dejavu \

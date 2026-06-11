@@ -41,6 +41,19 @@
     { "value": "split", "label": "Split PDFs ZIP" },
     { "value": "merge", "label": "Merged PDF" }
   ],
+  "presentationConversionMap": {
+    ".ppt": [".pdf", ".pptx", ".odp", ".png", ".jpg", ".zip"],
+    ".pptx": [".pdf", ".odp", ".png", ".jpg", ".zip"],
+    ".odp": [".pdf", ".pptx", ".png", ".jpg", ".zip"]
+  },
+  "presentationTargetOptions": [
+    { "value": ".pdf", "label": "PDF" },
+    { "value": ".pptx", "label": "PPTX" },
+    { "value": ".odp", "label": "ODP" },
+    { "value": ".png", "label": "PNG slide images" },
+    { "value": ".jpg", "label": "JPG slide images" },
+    { "value": ".zip", "label": "PNG slides ZIP" }
+  ],
   "documentConversionMap": {
     ".doc": [".pdf", ".docx", ".odt", ".rtf", ".txt", ".html", ".md"],
     ".docx": [".pdf", ".odt", ".rtf", ".txt", ".html", ".md"],
@@ -59,5 +72,77 @@
     { "value": ".txt", "label": "TXT" },
     { "value": ".html", "label": "HTML" },
     { "value": ".md", "label": "MD" }
+  ],
+  "spreadsheetConversionMap": {
+    ".xls": [".pdf", ".xlsx", ".csv", ".ods", ".tsv", ".html", ".json"],
+    ".xlsx": [".pdf", ".xls", ".csv", ".ods", ".tsv", ".html", ".json"],
+    ".csv": [".pdf", ".xlsx", ".xls", ".ods", ".tsv", ".html", ".json"],
+    ".ods": [".pdf", ".xlsx", ".xls", ".csv", ".tsv", ".html", ".json"],
+    ".tsv": [".pdf", ".xlsx", ".xls", ".csv", ".ods", ".html", ".json"]
+  },
+  "spreadsheetTargetOptions": [
+    { "value": ".pdf", "label": "PDF" },
+    { "value": ".xlsx", "label": "XLSX" },
+    { "value": ".xls", "label": "XLS" },
+    { "value": ".csv", "label": "CSV" },
+    { "value": ".ods", "label": "ODS" },
+    { "value": ".tsv", "label": "TSV" },
+    { "value": ".html", "label": "HTML" },
+    { "value": ".json", "label": "JSON" }
+  ],
+  "textDataConversionMap": {
+    ".txt": [".pdf", ".docx", ".html", ".md"],
+    ".md": [".pdf", ".html", ".docx", ".txt"],
+    ".html": [".pdf", ".txt", ".md"],
+    ".json": [".pdf", ".txt", ".csv", ".xml", ".yaml"],
+    ".xml": [".pdf", ".txt", ".json", ".csv"],
+    ".csv": [".pdf", ".txt", ".json", ".xml", ".xlsx"],
+    ".yaml": [".pdf", ".txt", ".json"],
+    ".yml": [".pdf", ".txt", ".json"],
+    ".toml": [".pdf", ".txt", ".json", ".yaml"],
+    ".css": [".pdf", ".txt"],
+    ".js": [".pdf", ".txt"],
+    ".ts": [".pdf", ".txt"],
+    ".py": [".pdf", ".txt"],
+    ".java": [".pdf", ".txt"],
+    ".cpp": [".pdf", ".txt"],
+    ".c": [".pdf", ".txt"]
+  },
+  "textDataTargetOptions": [
+    { "value": ".pdf", "label": "PDF" },
+    { "value": ".txt", "label": "TXT" },
+    { "value": ".html", "label": "HTML" },
+    { "value": ".json", "label": "JSON" },
+    { "value": ".xml", "label": "XML" },
+    { "value": ".csv", "label": "CSV" },
+    { "value": ".yaml", "label": "YAML" },
+    { "value": ".md", "label": "MD" },
+    { "value": ".docx", "label": "DOCX" },
+    { "value": ".xlsx", "label": "XLSX" }
+  ],
+  "notebookConversionMap": {
+    ".ipynb": [".pdf", ".html", ".py", ".md"]
+  },
+  "notebookTargetOptions": [
+    { "value": ".pdf", "label": "PDF" },
+    { "value": ".html", "label": "HTML" },
+    { "value": ".py", "label": "Python" },
+    { "value": ".md", "label": "Markdown" }
+  ],
+  "ebookConversionMap": {
+    ".epub": [".pdf", ".mobi", ".azw3", ".txt", ".docx"],
+    ".mobi": [".epub", ".pdf", ".txt", ".docx"],
+    ".azw3": [".epub", ".pdf", ".txt", ".docx"],
+    ".fb2": [".epub", ".pdf", ".txt", ".docx"],
+    ".pdf": [".epub", ".txt", ".docx"],
+    ".txt": [".epub", ".pdf", ".docx"]
+  },
+  "ebookTargetOptions": [
+    { "value": ".epub", "label": "EPUB" },
+    { "value": ".mobi", "label": "MOBI" },
+    { "value": ".azw3", "label": "AZW3" },
+    { "value": ".pdf", "label": "PDF" },
+    { "value": ".txt", "label": "TXT" },
+    { "value": ".docx", "label": "DOCX" }
   ]
 }

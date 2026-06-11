@@ -8,6 +8,11 @@ interface DownloadCenterProps {
   imageTarget: string;
   pdfTarget?: string;
   documentTarget?: string;
+  presentationTarget?: string;
+  spreadsheetTarget?: string;
+  textDataTarget?: string;
+  notebookTarget?: string;
+  ebookTarget?: string;
   onDownloadAll: () => void;
   onConvertMore: () => void;
   isZipping: boolean;
@@ -20,6 +25,11 @@ export function DownloadCenter({
   imageTarget,
   pdfTarget,
   documentTarget,
+  presentationTarget,
+  spreadsheetTarget,
+  textDataTarget,
+  notebookTarget,
+  ebookTarget,
   onDownloadAll,
   onConvertMore,
   isZipping,
@@ -65,6 +75,11 @@ export function DownloadCenter({
             imageTarget={imageTarget}
             pdfTarget={pdfTarget}
             documentTarget={documentTarget}
+            presentationTarget={presentationTarget}
+            spreadsheetTarget={spreadsheetTarget}
+            textDataTarget={textDataTarget}
+            notebookTarget={notebookTarget}
+            ebookTarget={ebookTarget}
           />
         ))}
       </div>

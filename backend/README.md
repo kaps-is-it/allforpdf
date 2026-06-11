@@ -17,6 +17,14 @@ FastAPI backend for AllForPDF file conversions.
 - `POST /api/convert-document`
 - `POST /api/convert-image`
 - `POST /api/convert-pdf`
+- `GET /api/text-data-conversions`
+- `POST /api/convert-text-data`
+- `GET /api/notebook-conversions`
+- `POST /api/convert-notebook`
+- `GET /api/ebook-conversions`
+- `POST /api/convert-ebook`
+- `GET /api/presentation-conversions`
+- `POST /api/convert-presentation`
 - `POST /api/merge-pdfs`
 - `POST /api/convert-pptx-images`
 

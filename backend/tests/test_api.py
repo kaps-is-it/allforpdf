@@ -1,19 +1,40 @@
 import io
+import json
+import os
+import shutil
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
 import fitz
 import pytest
+import xlrd
+import yaml
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app.conversions.formats import DOCUMENT_CONVERSION_MAP, IMAGE_CONVERSION_MAP
+from app.conversions.formats import (
+    DOCUMENT_CONVERSION_MAP,
+    EBOOK_CONVERSION_MAP,
+    IMAGE_CONVERSION_MAP,
+    NOTEBOOK_CONVERSION_MAP,
+    PRESENTATION_CONVERSION_MAP,
+    SPREADSHEET_CONVERSION_MAP,
+    TEXT_DATA_CONVERSION_MAP,
+)
 from app.main import app
 
 client = TestClient(app)
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 FILE_FIXTURES = FIXTURES / "files"
 IMAGE_FIXTURES = FIXTURES / "images"
+CALIBRE_ENV = os.environ.get("CALIBRE_EBOOK_CONVERT")
+CALIBRE_AVAILABLE = bool(
+    (CALIBRE_ENV and Path(CALIBRE_ENV).exists())
+    or shutil.which("ebook-convert")
+    or Path(r"C:\Program Files\Calibre2\ebook-convert.exe").exists()
+    or Path(r"C:\Program Files (x86)\Calibre2\ebook-convert.exe").exists()
+)
 
 
 PDF_EXTENSIONS = [
@@ -34,11 +55,13 @@ PDF_EXTENSIONS = [
     "xlsx",
     "csv",
     "ods",
+    "tsv",
     "ipynb",
     "txt",
     "md",
     "py",
     "js",
+    "ts",
     "c",
     "cpp",
     "java",
@@ -46,6 +69,10 @@ PDF_EXTENSIONS = [
     "htm",
     "css",
     "json",
+    "xml",
+    "yaml",
+    "yml",
+    "toml",
 ]
 
 
@@ -81,10 +108,31 @@ def assert_valid_zip_with_pngs(content):
         assert_valid_image(archive.read(pngs[0]), "PNG")
 
 
+def assert_valid_zip_with_images(content, suffix, expected_format):
+    with zipfile.ZipFile(io.BytesIO(content), "r") as archive:
+        images = [name for name in archive.namelist() if name.lower().endswith(suffix)]
+        assert images
+        assert_valid_image(archive.read(images[0]), expected_format)
+
+
 def assert_valid_office_zip(content, expected_member):
     with zipfile.ZipFile(io.BytesIO(content), "r") as archive:
         assert archive.testzip() is None
         assert expected_member in archive.namelist()
+
+
+def assert_valid_epub(content):
+    with zipfile.ZipFile(io.BytesIO(content), "r") as archive:
+        assert archive.testzip() is None
+        assert archive.read("mimetype") == b"application/epub+zip"
+        assert "META-INF/container.xml" in archive.namelist()
+
+
+def assert_valid_xls(content):
+    workbook = xlrd.open_workbook(file_contents=content)
+    assert workbook.nsheets >= 1
+    sheet = workbook.sheet_by_index(0)
+    assert sheet.nrows >= 2
 
 
 def assert_valid_rtf(content):
@@ -100,6 +148,16 @@ def assert_valid_zip_with_pdfs(content):
         pdfs = [name for name in archive.namelist() if name.lower().endswith(".pdf")]
         assert pdfs
         assert_valid_pdf(archive.read(pdfs[0]))
+
+
+def assert_valid_xml(content):
+    root = ET.fromstring(content)
+    assert root.tag
+
+
+def assert_valid_yaml(content):
+    payload = yaml.safe_load(content)
+    assert payload is not None
 
 
 @pytest.mark.parametrize("extension", PDF_EXTENSIONS)
@@ -170,8 +228,8 @@ def test_convert_image_full_matrix(input_ext, target_ext):
         assert_valid_image(response.content)
 
 
-@pytest.mark.parametrize("source_name", ["sample.pdf", "sample.pptx"])
-def test_convert_pdf_or_pptx_to_png_zip(source_name):
+@pytest.mark.parametrize("source_name", ["sample.pdf", "sample.ppt", "sample.pptx", "sample.odp"])
+def test_convert_pdf_or_presentation_to_png_zip(source_name):
     response = post_file("/api/convert-pptx-images", "files", FILE_FIXTURES / source_name)
 
     assert response.status_code == 200, response.text
@@ -217,6 +275,221 @@ def test_convert_document_full_matrix(input_ext, target_ext):
         assert_text_contains_fixture(response.content)
     elif target_ext == ".html":
         assert b"<html" in response.content[:500].lower()
+
+
+@pytest.mark.parametrize(
+    ("input_ext", "target_ext"),
+    [(input_ext, target) for input_ext, targets in SPREADSHEET_CONVERSION_MAP.items() for target in targets],
+)
+def test_convert_spreadsheet_full_matrix(input_ext, target_ext):
+    source = FILE_FIXTURES / f"sample{input_ext}"
+    response = post_file(
+        "/api/convert-spreadsheet",
+        "file",
+        source,
+        {"target_format": target_ext},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith(
+        {
+            ".pdf": "application/pdf",
+            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".xls": "application/vnd.ms-excel",
+            ".csv": "text/csv",
+            ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+            ".tsv": "text/tab-separated-values",
+            ".html": "text/html",
+            ".json": "application/json",
+        }[target_ext]
+    )
+
+    if target_ext == ".pdf":
+        assert_valid_pdf(response.content)
+    elif target_ext == ".xlsx":
+        assert_valid_office_zip(response.content, "xl/workbook.xml")
+    elif target_ext == ".xls":
+        assert_valid_xls(response.content)
+    elif target_ext == ".ods":
+        assert_valid_office_zip(response.content, "content.xml")
+    elif target_ext == ".csv":
+        assert b"name,value" in response.content
+        assert b"alpha,1" in response.content
+    elif target_ext == ".tsv":
+        assert b"name\tvalue" in response.content
+        assert b"alpha\t1" in response.content
+    elif target_ext == ".html":
+        assert b"<html" in response.content[:500].lower()
+        assert b"alpha" in response.content
+    elif target_ext == ".json":
+        payload = json.loads(response.content)
+        records = payload if isinstance(payload, list) else next(iter(payload.values()))
+        assert records[0]["name"] == "alpha"
+
+
+@pytest.mark.parametrize(
+    ("input_ext", "target_ext"),
+    [(input_ext, target) for input_ext, targets in TEXT_DATA_CONVERSION_MAP.items() for target in targets],
+)
+def test_convert_text_data_full_matrix(input_ext, target_ext):
+    source = FILE_FIXTURES / f"sample{input_ext}"
+    response = post_file(
+        "/api/convert-text-data",
+        "file",
+        source,
+        {"target_format": target_ext},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith(
+        {
+            ".pdf": "application/pdf",
+            ".txt": "text/plain",
+            ".html": "text/html",
+            ".json": "application/json",
+            ".xml": "application/xml",
+            ".csv": "text/csv",
+            ".yaml": "application/x-yaml",
+            ".md": "text/markdown",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }[target_ext]
+    )
+
+    if target_ext == ".pdf":
+        assert_valid_pdf(response.content)
+    elif target_ext == ".docx":
+        assert_valid_office_zip(response.content, "word/document.xml")
+    elif target_ext == ".xlsx":
+        assert_valid_office_zip(response.content, "xl/workbook.xml")
+    elif target_ext == ".html":
+        assert b"<html" in response.content[:500].lower()
+    elif target_ext == ".json":
+        assert json.loads(response.content) is not None
+    elif target_ext == ".xml":
+        assert_valid_xml(response.content)
+    elif target_ext == ".yaml":
+        assert_valid_yaml(response.content)
+    else:
+        assert response.content.strip()
+
+
+@pytest.mark.parametrize(
+    ("input_ext", "target_ext"),
+    [(input_ext, target) for input_ext, targets in NOTEBOOK_CONVERSION_MAP.items() for target in targets],
+)
+def test_convert_notebook_full_matrix(input_ext, target_ext):
+    source = FILE_FIXTURES / f"sample{input_ext}"
+    response = post_file(
+        "/api/convert-notebook",
+        "file",
+        source,
+        {"target_format": target_ext},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith(
+        {
+            ".pdf": "application/pdf",
+            ".html": "text/html",
+            ".py": "text/x-python",
+            ".md": "text/markdown",
+        }[target_ext]
+    )
+
+    if target_ext == ".pdf":
+        assert_valid_pdf(response.content)
+    elif target_ext == ".html":
+        assert b"<html" in response.content[:500].lower() or b"<!doctype html" in response.content[:500].lower()
+    elif target_ext == ".py":
+        assert b"print" in response.content
+    elif target_ext == ".md":
+        assert b"Converti Notebook Fixture" in response.content
+
+
+@pytest.mark.parametrize(
+    ("input_ext", "target_ext"),
+    [(input_ext, target) for input_ext, targets in EBOOK_CONVERSION_MAP.items() for target in targets],
+)
+def test_convert_ebook_full_matrix(input_ext, target_ext):
+    if target_ext in {".mobi", ".azw3"} and not CALIBRE_AVAILABLE:
+        pytest.skip("Calibre ebook-convert is required for MOBI/AZW3 output tests.")
+
+    source = FILE_FIXTURES / f"sample{input_ext}"
+    response = post_file(
+        "/api/convert-ebook",
+        "file",
+        source,
+        {"target_format": target_ext},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith(
+        {
+            ".epub": "application/epub+zip",
+            ".mobi": "application/x-mobipocket-ebook",
+            ".azw3": "application/vnd.amazon.ebook",
+            ".pdf": "application/pdf",
+            ".txt": "text/plain",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }[target_ext]
+    )
+
+    if target_ext == ".epub":
+        assert_valid_epub(response.content)
+    elif target_ext == ".pdf":
+        assert_valid_pdf(response.content)
+    elif target_ext == ".docx":
+        assert_valid_office_zip(response.content, "word/document.xml")
+    elif target_ext == ".txt":
+        assert response.content.strip()
+    elif target_ext in {".mobi", ".azw3"}:
+        assert b"BOOK" in response.content[:100]
+
+
+@pytest.mark.parametrize(
+    ("input_ext", "target_ext"),
+    [(input_ext, target) for input_ext, targets in PRESENTATION_CONVERSION_MAP.items() for target in targets],
+)
+def test_convert_presentation_full_matrix(input_ext, target_ext):
+    source = FILE_FIXTURES / f"sample{input_ext}"
+    response = post_file(
+        "/api/convert-presentation",
+        "file",
+        source,
+        {"target_format": target_ext},
+    )
+
+    assert response.status_code == 200, response.text
+
+    if target_ext == ".pdf":
+        assert response.headers["content-type"].startswith("application/pdf")
+        assert_valid_pdf(response.content)
+    elif target_ext == ".pptx":
+        assert response.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        )
+        assert_valid_office_zip(response.content, "ppt/presentation.xml")
+    elif target_ext == ".odp":
+        assert response.headers["content-type"].startswith("application/vnd.oasis.opendocument.presentation")
+        assert_valid_office_zip(response.content, "content.xml")
+    elif target_ext == ".png":
+        content_type = response.headers["content-type"]
+        assert content_type.startswith(("image/png", "application/zip"))
+        if content_type.startswith("application/zip"):
+            assert_valid_zip_with_images(response.content, ".png", "PNG")
+        else:
+            assert_valid_image(response.content, "PNG")
+    elif target_ext == ".jpg":
+        content_type = response.headers["content-type"]
+        assert content_type.startswith(("image/jpeg", "application/zip"))
+        if content_type.startswith("application/zip"):
+            assert_valid_zip_with_images(response.content, ".jpg", "JPEG")
+        else:
+            assert_valid_image(response.content, "JPEG")
+    elif target_ext == ".zip":
+        assert response.headers["content-type"].startswith("application/zip")
+        assert_valid_zip_with_pngs(response.content)
 
 
 @pytest.mark.parametrize(
@@ -323,3 +596,75 @@ def test_document_conversion_metadata():
     assert ".pdf" in body["conversions"][".docx"]
     assert ".docx" in body["conversions"][".md"]
     assert ".txt" in body["conversions"][".html"]
+
+
+def test_presentation_conversion_metadata():
+    response = client.get("/api/presentation-conversions")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inputs"] == [".odp", ".ppt", ".pptx"]
+    assert ".pdf" in body["outputs"]
+    assert ".png" in body["outputs"]
+    assert ".jpg" in body["outputs"]
+    assert ".zip" in body["outputs"]
+    assert ".odp" in body["conversions"][".pptx"]
+    assert ".pptx" in body["conversions"][".odp"]
+
+
+def test_spreadsheet_conversion_metadata():
+    response = client.get("/api/spreadsheet-conversions")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inputs"] == [".csv", ".ods", ".tsv", ".xls", ".xlsx"]
+    assert ".tsv" in body["outputs"]
+    assert ".json" in body["outputs"]
+    assert ".pdf" in body["conversions"][".xlsx"]
+    assert ".xlsx" in body["conversions"][".csv"]
+    assert ".json" in body["conversions"][".tsv"]
+
+
+def test_text_data_conversion_metadata():
+    response = client.get("/api/text-data-conversions")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert ".xml" in body["inputs"]
+    assert ".yaml" in body["inputs"]
+    assert ".toml" in body["inputs"]
+    assert ".ts" in body["inputs"]
+    assert ".xml" in body["outputs"]
+    assert ".yaml" in body["outputs"]
+    assert ".csv" in body["conversions"][".json"]
+    assert ".json" in body["conversions"][".xml"]
+    assert ".json" in body["conversions"][".yaml"]
+    assert ".txt" in body["conversions"][".ts"]
+
+
+def test_notebook_conversion_metadata():
+    response = client.get("/api/notebook-conversions")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inputs"] == [".ipynb"]
+    assert ".pdf" in body["outputs"]
+    assert ".html" in body["outputs"]
+    assert ".py" in body["conversions"][".ipynb"]
+    assert ".md" in body["conversions"][".ipynb"]
+
+
+def test_ebook_conversion_metadata():
+    response = client.get("/api/ebook-conversions")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert ".epub" in body["inputs"]
+    assert ".mobi" in body["inputs"]
+    assert ".azw3" in body["inputs"]
+    assert ".fb2" in body["inputs"]
+    assert ".docx" in body["outputs"]
+    assert ".mobi" in body["conversions"][".epub"]
+    assert ".azw3" in body["conversions"][".epub"]
+    assert ".epub" in body["conversions"][".pdf"]
+    assert ".pdf" in body["conversions"][".txt"]

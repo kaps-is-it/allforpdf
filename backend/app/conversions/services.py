@@ -5,6 +5,7 @@ import base64
 import uuid
 import html
 import re
+import json
 import aiofiles
 from PIL import Image, ImageSequence
 import img2pdf
@@ -15,20 +16,38 @@ import pathlib
 import shutil
 import markdown
 import pandas as pd
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pygments import highlight
 from pygments.lexers import get_lexer_for_filename
 from pygments.formatters import HtmlFormatter
 from playwright.async_api import async_playwright
+from urllib.parse import unquote
+import yaml
+
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - Python < 3.11 fallback when available
+    import tomli as tomllib
 import fitz  # type: ignore[import-untyped]  # PyMuPDF — installed in Docker at runtime
 
 from app.conversions.formats import (
     DOCUMENT_MEDIA_TYPES,
+    EBOOK_MEDIA_TYPES,
     IMAGE_CONVERSION_MAP,
+    NOTEBOOK_MEDIA_TYPES,
     PDF_MEDIA_TYPES,
+    PRESENTATION_MEDIA_TYPES,
+    SPREADSHEET_MEDIA_TYPES,
+    TEXT_DATA_MEDIA_TYPES,
     get_document_download_name,
+    get_ebook_download_name,
+    get_notebook_download_name,
     get_pdf_download_name,
+    get_presentation_download_name,
+    get_spreadsheet_download_name,
+    get_text_data_download_name,
     normalize_image_extension,
 )
 
@@ -44,6 +63,12 @@ class ConversionOutput:
     path: str
     filename: str
     media_type: str
+
+
+@dataclass
+class EbookContent:
+    title: str
+    text: str
 
 
 async def _html_to_pdf(html_content, output_path, pdf_options=None):
@@ -87,6 +112,11 @@ def _run_libreoffice_convert(input_path, output_dir, target_ext):
         '.odt': 'odt:writer8',
         '.rtf': 'rtf:Rich Text Format',
         '.txt': 'txt:Text',
+        '.pptx': 'pptx:Impress MS PowerPoint 2007 XML',
+        '.odp': 'odp:impress8',
+        '.xlsx': 'xlsx:Calc MS Excel 2007 XML',
+        '.xls': 'xls:MS Excel 97',
+        '.ods': 'ods:calc8',
     }
     target_name = export_filters.get(target_ext, target_ext.lstrip('.'))
     output_dir = pathlib.Path(output_dir)
@@ -549,82 +579,837 @@ async def process_office_to_pdf(input_path, output_dir):
     # Uses LibreOffice headless for Word and PowerPoint presentations.
     return await asyncio.to_thread(_run_libreoffice_convert, input_path, output_dir, '.pdf')
 
+def _clean_sheet_name(name, used_names):
+    cleaned = re.sub(r'[\[\]:*?/\\]', '_', str(name or 'Sheet1')).strip() or 'Sheet1'
+    cleaned = cleaned[:31]
+    candidate = cleaned
+    index = 2
+    while candidate in used_names:
+        suffix = f"_{index}"
+        candidate = f"{cleaned[:31 - len(suffix)]}{suffix}"
+        index += 1
+    used_names.add(candidate)
+    return candidate
+
+
+def _normalize_spreadsheet_frames(frames):
+    used_names = set()
+    normalized = {}
+    for name, frame in frames.items():
+        clean_name = _clean_sheet_name(name, used_names)
+        normalized[clean_name] = frame.where(pd.notna(frame), None)
+    return normalized
+
+
+def _read_spreadsheet_frames(input_path, input_ext):
+    input_ext = input_ext.lower()
+    if input_ext == '.csv':
+        return {'Sheet1': pd.read_csv(input_path)}
+    if input_ext == '.tsv':
+        return {'Sheet1': pd.read_csv(input_path, sep='\t')}
+    if input_ext == '.ods':
+        return pd.read_excel(input_path, engine='odf', sheet_name=None)
+    if input_ext == '.xls':
+        return pd.read_excel(input_path, engine='xlrd', sheet_name=None)
+    return pd.read_excel(input_path, engine='openpyxl', sheet_name=None)
+
+
+async def _load_spreadsheet_frames(input_path, input_ext):
+    frames = await asyncio.to_thread(_read_spreadsheet_frames, input_path, input_ext)
+    return _normalize_spreadsheet_frames(frames)
+
+
+def _first_spreadsheet_frame(frames):
+    return next(iter(frames.values()))
+
+
+def _spreadsheet_frames_to_html(frames, title='Converted Spreadsheet'):
+    sheet_sections = []
+    for sheet_name, frame in frames.items():
+        table_html = frame.to_html(classes=['styled-table'], index=False, border=0, na_rep='')
+        sheet_sections.append(
+            f"<section class=\"sheet-section\">"
+            f"<h2>{html.escape(sheet_name)}</h2>"
+            f"{table_html}"
+            "</section>"
+        )
+
+    return f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>{html.escape(title)}</title>
+  <style>
+    @page {{ size: landscape; margin: 1cm; }}
+    body {{
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 10px;
+      color: #333;
+      margin: 0;
+      padding: 24px;
+      background: #ffffff;
+    }}
+    h1 {{
+      margin: 0 0 18px;
+      color: #173c35;
+      font-size: 20px;
+    }}
+    h2 {{
+      margin: 0 0 10px;
+      color: #0f766e;
+      font-size: 15px;
+    }}
+    .sheet-section {{
+      margin-bottom: 26px;
+      break-inside: avoid;
+    }}
+    .styled-table {{
+      border-collapse: collapse;
+      width: 100%;
+      table-layout: auto;
+    }}
+    .styled-table thead tr {{
+      background-color: #0f766e;
+      color: #ffffff;
+      text-align: left;
+    }}
+    .styled-table th,
+    .styled-table td {{
+      padding: 8px 10px;
+      border: 1px solid #dddddd;
+      word-break: normal;
+    }}
+    .styled-table tbody tr:nth-of-type(even) {{
+      background-color: #f3f7f5;
+    }}
+  </style>
+</head>
+<body>
+  <h1>{html.escape(title)}</h1>
+  {''.join(sheet_sections)}
+</body>
+</html>
+"""
+
+
+def _write_spreadsheet_text(frame, output_path, sep):
+    frame.to_csv(output_path, index=False, sep=sep, encoding='utf-8')
+    return output_path
+
+
+def _write_spreadsheet_json(frames, output_path):
+    def _records(frame):
+        serializable = frame.astype(object).where(pd.notna(frame), None)
+        return serializable.to_dict(orient='records')
+
+    if len(frames) == 1:
+        payload = _records(_first_spreadsheet_frame(frames))
+    else:
+        payload = {sheet_name: _records(frame) for sheet_name, frame in frames.items()}
+
+    pathlib.Path(output_path).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + '\n',
+        encoding='utf-8',
+    )
+    return output_path
+
+
+def _write_spreadsheet_html(frames, output_path, title):
+    pathlib.Path(output_path).write_text(_spreadsheet_frames_to_html(frames, title), encoding='utf-8')
+    return output_path
+
+
+def _write_spreadsheet_workbook(frames, output_path, target_ext):
+    if target_ext == '.xlsx':
+        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+            for sheet_name, frame in frames.items():
+                frame.to_excel(writer, sheet_name=sheet_name, index=False)
+        return output_path
+
+    if target_ext == '.ods':
+        with pd.ExcelWriter(output_path, engine='odf') as writer:
+            for sheet_name, frame in frames.items():
+                frame.to_excel(writer, sheet_name=sheet_name, index=False)
+        return output_path
+
+    if target_ext == '.xls':
+        with tempfile.TemporaryDirectory(prefix='spreadsheet_xls_') as temp_dir:
+            temp_xlsx = pathlib.Path(temp_dir) / f'{uuid.uuid4()}.xlsx'
+            _write_spreadsheet_workbook(frames, str(temp_xlsx), '.xlsx')
+            converted = _run_libreoffice_convert(str(temp_xlsx), temp_dir, '.xls')
+            shutil.move(converted, output_path)
+        return output_path
+
+    raise ValueError(f"Unsupported spreadsheet workbook target: {target_ext}")
+
+
 async def process_spreadsheet_to_pdf(input_path, output_path, ext):
-    def _read_data():
-        if ext == '.csv':
-            return pd.read_csv(input_path)
-        elif ext == '.ods':
-            return pd.read_excel(input_path, engine="odf")
-        else:
-            return pd.read_excel(input_path) # native xlsx
-            
-    df = await asyncio.to_thread(_read_data)
-    
-    # Generate HTML from the dataframe
-    html_table = df.to_html(classes=['styled-table'], index=False)
-    
-    # Inject CSS to make tables look beautiful and fit to width
-    html_content = f"""
-    <html>
-    <head>
-    <style>
-        @page {{ size: landscape; margin: 1cm; }}
-        body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            font-size: 10px;
-            color: #333;
-        }}
-        .styled-table {{
-            border-collapse: collapse;
-            width: 100%;
-            table-layout: auto;
-        }}
-        .styled-table thead tr {{
-            background-color: #8b5cf6;
-            color: #ffffff;
-            text-align: left;
-        }}
-        .styled-table th, .styled-table td {{
-            padding: 8px 10px;
-            border: 1px solid #dddddd;
-            word-break: normal;
-        }}
-        .styled-table tbody tr:nth-of-type(even) {{
-            background-color: #f3f3f3;
-        }}
-    </style>
-    </head>
-    <body>
-        {html_table}
-    </body>
-    </html>
-    """
-    
+    frames = await _load_spreadsheet_frames(input_path, ext)
+    html_content = _spreadsheet_frames_to_html(frames, pathlib.Path(input_path).stem)
+
     await _html_to_pdf(html_content, output_path, {
         'landscape': True
     })
     return output_path
 
-async def process_ipynb_to_pdf(input_path, output_path):
-    # Convert notebook to HTML first (avoids Windows asyncio subprocess bugs),
-    # then render the HTML to PDF with our shared Playwright helper.
-    html_path = str(input_path) + ".html"
-    def _convert_to_html():
-        subprocess.run(["jupyter", "nbconvert", "--to", "html", input_path, "--output", html_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    await asyncio.to_thread(_convert_to_html)
-    
-    async with aiofiles.open(html_path, 'r', encoding='utf-8') as f:
-        html_content = await f.read()
-    
-    await _html_to_pdf(html_content, output_path, {
-        'margin': {'top': '20px', 'right': '20px', 'bottom': '20px', 'left': '20px'}
-    })
-    
+
+async def process_spreadsheet_conversion(input_path, output_dir, original_filename, input_ext, target_ext):
+    output_dir = pathlib.Path(output_dir)
+    output_path = output_dir / f"{uuid.uuid4()}{target_ext}"
+    frames = await _load_spreadsheet_frames(input_path, input_ext)
+    title = pathlib.Path(original_filename).stem
+
+    if target_ext == '.pdf':
+        html_content = _spreadsheet_frames_to_html(frames, title)
+        await _html_to_pdf(html_content, str(output_path), {'landscape': True})
+    elif target_ext == '.csv':
+        await asyncio.to_thread(_write_spreadsheet_text, _first_spreadsheet_frame(frames), str(output_path), ',')
+    elif target_ext == '.tsv':
+        await asyncio.to_thread(_write_spreadsheet_text, _first_spreadsheet_frame(frames), str(output_path), '\t')
+    elif target_ext == '.json':
+        await asyncio.to_thread(_write_spreadsheet_json, frames, str(output_path))
+    elif target_ext == '.html':
+        await asyncio.to_thread(_write_spreadsheet_html, frames, str(output_path), title)
+    elif target_ext in {'.xlsx', '.xls', '.ods'}:
+        await asyncio.to_thread(_write_spreadsheet_workbook, frames, str(output_path), target_ext)
+    else:
+        raise ValueError(f"Unsupported spreadsheet conversion target: {target_ext}")
+
+    return ConversionOutput(
+        path=str(output_path),
+        filename=get_spreadsheet_download_name(original_filename, target_ext),
+        media_type=SPREADSHEET_MEDIA_TYPES[target_ext],
+    )
+
+
+def _safe_xml_tag(value, fallback='item'):
+    tag = re.sub(r'[^A-Za-z0-9_.-]+', '_', str(value or '').strip())
+    tag = tag.strip('._-') or fallback
+    if not re.match(r'[A-Za-z_]', tag):
+        tag = f'{fallback}_{tag}'
+    return tag
+
+
+def _cell_value(value):
+    if value is None:
+        return ''
+    if isinstance(value, float) and pd.isna(value):
+        return ''
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return value
+
+
+def _flatten_record(value, prefix=''):
+    if isinstance(value, dict):
+        flattened = {}
+        for key, child in value.items():
+            child_key = f'{prefix}.{key}' if prefix else str(key)
+            if isinstance(child, dict):
+                flattened.update(_flatten_record(child, child_key))
+            elif isinstance(child, list):
+                flattened[child_key] = json.dumps(child, ensure_ascii=False, default=str)
+            else:
+                flattened[child_key] = _cell_value(child)
+        return flattened
+
+    if isinstance(value, list):
+        return {prefix or 'value': json.dumps(value, ensure_ascii=False, default=str)}
+
+    return {prefix or 'value': _cell_value(value)}
+
+
+def _payload_to_records(payload):
+    if isinstance(payload, list):
+        return [_flatten_record(item) for item in payload]
+
+    if isinstance(payload, dict):
+        for value in payload.values():
+            if isinstance(value, list) and all(isinstance(item, dict) for item in value):
+                return [_flatten_record(item) for item in value]
+
+        if payload and all(isinstance(value, list) for value in payload.values()):
+            try:
+                return pd.DataFrame(payload).astype(object).where(pd.notna(pd.DataFrame(payload)), None).to_dict(orient='records')
+            except Exception:
+                pass
+
+        return [_flatten_record(payload)]
+
+    return [{'value': _cell_value(payload)}]
+
+
+def _write_records_csv(records, output_path):
+    frame = pd.DataFrame(records)
+    frame.to_csv(output_path, index=False, encoding='utf-8')
+    return output_path
+
+
+def _append_xml_value(parent, key, value):
+    tag = _safe_xml_tag(key)
+    if isinstance(value, list):
+        for item in value:
+            _append_xml_value(parent, tag, item)
+        return
+
+    child = ET.SubElement(parent, tag)
+    if isinstance(value, dict):
+        for nested_key, nested_value in value.items():
+            _append_xml_value(child, nested_key, nested_value)
+    elif value is not None:
+        child.text = str(value)
+
+
+def _payload_to_xml(payload, output_path):
+    root = ET.Element('data')
+
+    if isinstance(payload, list):
+        for item in payload:
+            _append_xml_value(root, 'record', item)
+    elif isinstance(payload, dict):
+        for key, value in payload.items():
+            _append_xml_value(root, key, value)
+    else:
+        _append_xml_value(root, 'value', payload)
+
     try:
-        os.remove(html_path)
-    except:
+        ET.indent(root, space='  ')
+    except AttributeError:
         pass
-        
+
+    tree = ET.ElementTree(root)
+    tree.write(output_path, encoding='utf-8', xml_declaration=True)
+    return output_path
+
+
+def _element_to_payload(element):
+    children = list(element)
+    attributes = {f'@{key}': value for key, value in element.attrib.items()}
+    text = (element.text or '').strip()
+
+    if not children:
+        if attributes:
+            if text:
+                attributes['#text'] = text
+            return attributes
+        return text
+
+    payload = dict(attributes)
+    for child in children:
+        child_value = _element_to_payload(child)
+        if child.tag in payload:
+            if not isinstance(payload[child.tag], list):
+                payload[child.tag] = [payload[child.tag]]
+            payload[child.tag].append(child_value)
+        else:
+            payload[child.tag] = child_value
+
+    if text:
+        payload['#text'] = text
+    return payload
+
+
+def _xml_to_payload(input_path):
+    root = ET.parse(input_path).getroot()
+    return {root.tag: _element_to_payload(root)}
+
+
+def _xml_to_records(input_path):
+    root = ET.parse(input_path).getroot()
+    children = list(root)
+    source_elements = children if children else [root]
+    return [_flatten_record(_element_to_payload(element)) for element in source_elements]
+
+
+def _load_json_payload(input_path):
+    return json.loads(_read_text_with_fallback(input_path))
+
+
+def _load_yaml_payload(input_path):
+    return yaml.safe_load(_read_text_with_fallback(input_path))
+
+
+def _load_toml_payload(input_path):
+    return tomllib.loads(_read_text_with_fallback(input_path))
+
+
+def _write_json_payload(payload, output_path):
+    pathlib.Path(output_path).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + '\n',
+        encoding='utf-8',
+    )
+    return output_path
+
+
+def _write_yaml_payload(payload, output_path):
+    pathlib.Path(output_path).write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+        encoding='utf-8',
+    )
+    return output_path
+
+
+def _copy_text_content(input_path, output_path):
+    content = _read_text_with_fallback(input_path)
+    pathlib.Path(output_path).write_text(content if content.endswith('\n') else f'{content}\n', encoding='utf-8')
+    return output_path
+
+
+async def process_text_data_conversion(input_path, output_dir, original_filename, input_ext, target_ext):
+    output_dir = pathlib.Path(output_dir)
+    output_path = output_dir / f"{uuid.uuid4()}{target_ext}"
+    input_ext = '.html' if input_ext == '.htm' else input_ext
+
+    if target_ext == '.pdf':
+        if input_ext in {'.txt', '.md', '.html'}:
+            return await process_document_conversion(input_path, output_dir, original_filename, input_ext, target_ext)
+        if input_ext == '.csv':
+            return await process_spreadsheet_conversion(input_path, output_dir, original_filename, input_ext, target_ext)
+        await process_text_code_to_pdf(input_path, str(output_path), input_ext)
+    elif target_ext in {'.docx', '.html', '.md'} and input_ext in {'.txt', '.md', '.html'}:
+        return await process_document_conversion(input_path, output_dir, original_filename, input_ext, target_ext)
+    elif target_ext == '.xlsx' and input_ext == '.csv':
+        return await process_spreadsheet_conversion(input_path, output_dir, original_filename, input_ext, target_ext)
+    elif target_ext == '.txt':
+        if input_ext in {'.md', '.html'}:
+            return await process_document_conversion(input_path, output_dir, original_filename, input_ext, target_ext)
+        await asyncio.to_thread(_copy_text_content, input_path, str(output_path))
+    elif input_ext == '.json' and target_ext == '.csv':
+        payload = await asyncio.to_thread(_load_json_payload, input_path)
+        await asyncio.to_thread(_write_records_csv, _payload_to_records(payload), str(output_path))
+    elif input_ext == '.json' and target_ext == '.xml':
+        payload = await asyncio.to_thread(_load_json_payload, input_path)
+        await asyncio.to_thread(_payload_to_xml, payload, str(output_path))
+    elif input_ext == '.json' and target_ext == '.yaml':
+        payload = await asyncio.to_thread(_load_json_payload, input_path)
+        await asyncio.to_thread(_write_yaml_payload, payload, str(output_path))
+    elif input_ext == '.xml' and target_ext == '.json':
+        payload = await asyncio.to_thread(_xml_to_payload, input_path)
+        await asyncio.to_thread(_write_json_payload, payload, str(output_path))
+    elif input_ext == '.xml' and target_ext == '.csv':
+        records = await asyncio.to_thread(_xml_to_records, input_path)
+        await asyncio.to_thread(_write_records_csv, records, str(output_path))
+    elif input_ext in {'.yaml', '.yml'} and target_ext == '.json':
+        payload = await asyncio.to_thread(_load_yaml_payload, input_path)
+        await asyncio.to_thread(_write_json_payload, payload, str(output_path))
+    elif input_ext == '.toml' and target_ext == '.json':
+        payload = await asyncio.to_thread(_load_toml_payload, input_path)
+        await asyncio.to_thread(_write_json_payload, payload, str(output_path))
+    elif input_ext == '.toml' and target_ext == '.yaml':
+        payload = await asyncio.to_thread(_load_toml_payload, input_path)
+        await asyncio.to_thread(_write_yaml_payload, payload, str(output_path))
+    elif input_ext == '.csv' and target_ext == '.json':
+        return await process_spreadsheet_conversion(input_path, output_dir, original_filename, input_ext, target_ext)
+    elif input_ext == '.csv' and target_ext == '.xml':
+        frames = await _load_spreadsheet_frames(input_path, input_ext)
+        records = _payload_to_records(_first_spreadsheet_frame(frames).to_dict(orient='records'))
+        await asyncio.to_thread(_payload_to_xml, records, str(output_path))
+    else:
+        raise ValueError(f"Unsupported text/data conversion: {input_ext} to {target_ext}")
+
+    return ConversionOutput(
+        path=str(output_path),
+        filename=get_text_data_download_name(original_filename, target_ext),
+        media_type=TEXT_DATA_MEDIA_TYPES[target_ext],
+    )
+
+
+def _export_notebook(input_path, target_ext):
+    import nbformat
+    from nbconvert import HTMLExporter, MarkdownExporter, PythonExporter
+
+    exporters = {
+        '.html': HTMLExporter,
+        '.md': MarkdownExporter,
+        '.py': PythonExporter,
+    }
+    exporter_class = exporters.get(target_ext)
+    if not exporter_class:
+        raise ValueError(f"Unsupported notebook export target: {target_ext}")
+
+    with open(input_path, encoding='utf-8') as notebook_file:
+        notebook = nbformat.read(notebook_file, as_version=4)
+
+    exporter = exporter_class()
+    body, _resources = exporter.from_notebook_node(notebook)
+    return body
+
+
+async def process_notebook_conversion(input_path, output_dir, original_filename, target_ext):
+    output_dir = pathlib.Path(output_dir)
+    output_path = output_dir / f"{uuid.uuid4()}{target_ext}"
+
+    if target_ext == '.pdf':
+        html_content = await asyncio.to_thread(_export_notebook, input_path, '.html')
+        await _html_to_pdf(
+            html_content,
+            str(output_path),
+            {'margin': {'top': '20px', 'right': '20px', 'bottom': '20px', 'left': '20px'}},
+        )
+    else:
+        content = await asyncio.to_thread(_export_notebook, input_path, target_ext)
+        _write_text_file(output_path, content if content.endswith('\n') else f'{content}\n')
+
+    return ConversionOutput(
+        path=str(output_path),
+        filename=get_notebook_download_name(original_filename, target_ext),
+        media_type=NOTEBOOK_MEDIA_TYPES[target_ext],
+    )
+
+
+def _local_xml_name(tag):
+    return str(tag).rsplit('}', 1)[-1]
+
+
+def _first_xml_text(root, local_name):
+    for element in root.iter():
+        if _local_xml_name(element.tag) == local_name:
+            text = ''.join(element.itertext()).strip()
+            if text:
+                return text
+    return ''
+
+
+def _decode_epub_member(raw_bytes):
+    for encoding in ('utf-8-sig', 'utf-8', 'cp1252', 'latin-1'):
+        try:
+            return raw_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw_bytes.decode('utf-8', errors='replace')
+
+
+def _epub_rootfile(zip_file):
+    try:
+        container = ET.fromstring(zip_file.read('META-INF/container.xml'))
+    except Exception:
+        return ''
+
+    for element in container.iter():
+        if _local_xml_name(element.tag) == 'rootfile':
+            full_path = element.attrib.get('full-path', '')
+            if full_path:
+                return full_path
+    return ''
+
+
+def _epub_spine_documents(zip_file):
+    opf_path = _epub_rootfile(zip_file)
+    if not opf_path:
+        return []
+
+    try:
+        opf_root = ET.fromstring(zip_file.read(opf_path))
+    except Exception:
+        return []
+
+    title = _first_xml_text(opf_root, 'title')
+    manifest = {}
+    for element in opf_root.iter():
+        if _local_xml_name(element.tag) == 'item':
+            item_id = element.attrib.get('id')
+            href = element.attrib.get('href')
+            media_type = element.attrib.get('media-type', '')
+            if item_id and href and media_type in {'application/xhtml+xml', 'text/html'}:
+                base_dir = pathlib.PurePosixPath(opf_path).parent
+                manifest[item_id] = str(base_dir / unquote(href)) if str(base_dir) != '.' else unquote(href)
+
+    spine_paths = []
+    for element in opf_root.iter():
+        if _local_xml_name(element.tag) == 'itemref':
+            item_path = manifest.get(element.attrib.get('idref'))
+            if item_path:
+                spine_paths.append(item_path)
+
+    return title, [path for path in spine_paths if path in zip_file.namelist()]
+
+
+def _fallback_epub_documents(zip_file):
+    return sorted(
+        name
+        for name in zip_file.namelist()
+        if name.lower().endswith(('.xhtml', '.html', '.htm')) and not name.lower().startswith('meta-inf/')
+    )
+
+
+def _read_epub_content(input_path, fallback_title):
+    with zipfile.ZipFile(input_path, 'r') as zip_file:
+        spine = _epub_spine_documents(zip_file)
+        if spine:
+            title, document_paths = spine
+            if not document_paths:
+                document_paths = _fallback_epub_documents(zip_file)
+        else:
+            title, document_paths = '', _fallback_epub_documents(zip_file)
+
+        text_parts = []
+        for document_path in document_paths:
+            content = _decode_epub_member(zip_file.read(document_path))
+            text = _html_to_text(content).strip()
+            if text:
+                text_parts.append(text)
+
+    text = '\n\n'.join(text_parts).strip()
+    if not text:
+        raise Exception("No readable text was found in the EPUB.")
+    return EbookContent(title or fallback_title, text)
+
+
+def _read_fb2_content(input_path, fallback_title):
+    root = ET.parse(input_path).getroot()
+    title = _first_xml_text(root, 'book-title') or fallback_title
+    paragraphs = []
+    for element in root.iter():
+        if _local_xml_name(element.tag) in {'p', 'v', 'subtitle'}:
+            text = ' '.join(''.join(element.itertext()).split())
+            if text:
+                paragraphs.append(text)
+
+    text = '\n\n'.join(paragraphs).strip()
+    if not text:
+        raise Exception("No readable text was found in the FB2 file.")
+    return EbookContent(title, text)
+
+
+def _read_pdf_ebook_content(input_path, fallback_title):
+    pages = _get_pdf_text_pages(input_path)
+    text = '\n\n'.join(page for page in pages if page).strip()
+    if not text:
+        text = 'No selectable text was found in this PDF.'
+    return EbookContent(fallback_title, text)
+
+
+def _read_txt_ebook_content(input_path, fallback_title):
+    text = _read_text_with_fallback(input_path).strip()
+    if not text:
+        raise Exception("The text file is empty.")
+    return EbookContent(fallback_title, text)
+
+
+def _ebook_convert_commands():
+    commands = [
+        os.environ.get('CALIBRE_EBOOK_CONVERT', ''),
+        'ebook-convert',
+        r'C:\Program Files\Calibre2\ebook-convert.exe',
+        r'C:\Program Files (x86)\Calibre2\ebook-convert.exe',
+    ]
+    return [command for command in commands if command]
+
+
+def _run_ebook_convert(input_path, output_path):
+    last_error = None
+    for cmd in _ebook_convert_commands():
+        try:
+            result = subprocess.run(
+                [cmd, str(input_path), str(output_path)],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=180,
+            )
+        except FileNotFoundError:
+            continue
+
+        if result.returncode == 0 and pathlib.Path(output_path).exists():
+            return output_path
+        last_error = (result.stderr or result.stdout or '').strip()
+
+    message = "Calibre ebook-convert is required for this MOBI/AZW3 conversion."
+    if last_error:
+        message = f"{message} Calibre reported: {last_error}"
+    raise Exception(message)
+
+
+def _read_mobi_family_content(input_path, fallback_title):
+    temp_dir = None
+    try:
+        import mobi
+
+        temp_dir, extracted_path = mobi.extract(input_path)
+        extracted_ext = pathlib.Path(extracted_path).suffix.lower()
+        if extracted_ext == '.epub':
+            return _read_epub_content(extracted_path, fallback_title)
+        if extracted_ext in {'.html', '.htm'}:
+            content = _read_text_with_fallback(extracted_path)
+            text = _html_to_text(content).strip()
+            if text:
+                return EbookContent(fallback_title, text)
+        if extracted_ext == '.pdf':
+            return _read_pdf_ebook_content(extracted_path, fallback_title)
+    except Exception:
+        pass
+    finally:
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    with tempfile.TemporaryDirectory(prefix='ebook_mobi_') as calibre_dir:
+        epub_path = pathlib.Path(calibre_dir) / f"{uuid.uuid4()}.epub"
+        _run_ebook_convert(input_path, epub_path)
+        return _read_epub_content(epub_path, fallback_title)
+
+
+def _read_ebook_content(input_path, input_ext, original_filename):
+    fallback_title = pathlib.Path(original_filename).stem
+    if input_ext == '.epub':
+        return _read_epub_content(input_path, fallback_title)
+    if input_ext in {'.mobi', '.azw3'}:
+        return _read_mobi_family_content(input_path, fallback_title)
+    if input_ext == '.fb2':
+        return _read_fb2_content(input_path, fallback_title)
+    if input_ext == '.pdf':
+        return _read_pdf_ebook_content(input_path, fallback_title)
+    if input_ext == '.txt':
+        return _read_txt_ebook_content(input_path, fallback_title)
+    raise ValueError(f"Unsupported eBook input type: {input_ext}")
+
+
+def _ebook_text_to_html(content):
+    paragraphs = []
+    for block in re.split(r'\n\s*\n', content.text.strip()):
+        escaped = html.escape(block).replace('\n', '<br />')
+        paragraphs.append(f'<p>{escaped}</p>')
+
+    body = '\n'.join(paragraphs) if paragraphs else '<p></p>'
+    title = html.escape(content.title)
+    return f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>{title}</title>
+  <style>
+    body {{ font-family: Georgia, "Times New Roman", serif; line-height: 1.7; max-width: 760px; margin: 40px auto; color: #1f2937; }}
+    h1 {{ font-family: Arial, sans-serif; font-size: 28px; margin-bottom: 28px; }}
+    p {{ margin: 0 0 1rem; }}
+  </style>
+</head>
+<body>
+  <h1>{title}</h1>
+  {body}
+</body>
+</html>
+"""
+
+
+def _write_epub_content(content, output_path):
+    identifier = f"urn:uuid:{uuid.uuid4()}"
+    title = html.escape(content.title)
+    paragraphs = []
+    for block in re.split(r'\n\s*\n', content.text.strip()):
+        escaped = html.escape(block).replace('\n', '<br />')
+        paragraphs.append(f'<p>{escaped}</p>')
+    body = '\n'.join(paragraphs) if paragraphs else '<p></p>'
+
+    container_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml" />
+  </rootfiles>
+</container>
+"""
+    package_opf = f"""<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="book-id">{identifier}</dc:identifier>
+    <dc:title>{title}</dc:title>
+    <dc:language>en</dc:language>
+    <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav" />
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml" />
+  </manifest>
+  <spine>
+    <itemref idref="chapter" />
+  </spine>
+</package>
+"""
+    nav_xhtml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>{title}</title></head>
+<body>
+  <nav epub:type="toc" id="toc">
+    <h1>{title}</h1>
+    <ol><li><a href="chapter.xhtml">{title}</a></li></ol>
+  </nav>
+</body>
+</html>
+"""
+    chapter_xhtml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>{title}</title>
+  <style>body {{ font-family: serif; line-height: 1.6; }} p {{ margin: 0 0 1em; }}</style>
+</head>
+<body>
+  <h1>{title}</h1>
+  {body}
+</body>
+</html>
+"""
+
+    with zipfile.ZipFile(output_path, 'w') as archive:
+        archive.writestr('mimetype', 'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+        archive.writestr('META-INF/container.xml', container_xml, compress_type=zipfile.ZIP_DEFLATED)
+        archive.writestr('EPUB/package.opf', package_opf, compress_type=zipfile.ZIP_DEFLATED)
+        archive.writestr('EPUB/nav.xhtml', nav_xhtml, compress_type=zipfile.ZIP_DEFLATED)
+        archive.writestr('EPUB/chapter.xhtml', chapter_xhtml, compress_type=zipfile.ZIP_DEFLATED)
+    return output_path
+
+
+def _write_docx_from_ebook_content(content, output_path):
+    try:
+        from docx import Document
+    except ImportError as exc:
+        raise Exception("python-docx is required for eBook to DOCX conversion.") from exc
+
+    document = Document()
+    document.core_properties.title = content.title
+    document.add_heading(content.title, level=1)
+    for block in re.split(r'\n\s*\n', content.text.strip()):
+        if block.strip():
+            document.add_paragraph(block.strip())
+    document.save(output_path)
+    return output_path
+
+
+async def process_ebook_conversion(input_path, output_dir, original_filename, input_ext, target_ext):
+    output_dir = pathlib.Path(output_dir)
+    output_path = output_dir / f"{uuid.uuid4()}{target_ext}"
+
+    if target_ext in {'.mobi', '.azw3'}:
+        await asyncio.to_thread(_run_ebook_convert, input_path, str(output_path))
+    else:
+        content = await asyncio.to_thread(_read_ebook_content, input_path, input_ext, original_filename)
+        if target_ext == '.epub':
+            await asyncio.to_thread(_write_epub_content, content, str(output_path))
+        elif target_ext == '.pdf':
+            await _html_to_pdf(
+                _ebook_text_to_html(content),
+                str(output_path),
+                {'margin': {'top': '40px', 'right': '40px', 'bottom': '40px', 'left': '40px'}},
+            )
+        elif target_ext == '.txt':
+            await asyncio.to_thread(_write_text_file, str(output_path), f"{content.title}\n\n{content.text.strip()}\n")
+        elif target_ext == '.docx':
+            await asyncio.to_thread(_write_docx_from_ebook_content, content, str(output_path))
+        else:
+            raise ValueError(f"Unsupported eBook conversion target: {target_ext}")
+
+    return ConversionOutput(
+        path=str(output_path),
+        filename=get_ebook_download_name(original_filename, target_ext),
+        media_type=EBOOK_MEDIA_TYPES[target_ext],
+    )
+
+
+async def process_ipynb_to_pdf(input_path, output_path):
+    html_content = await asyncio.to_thread(_export_notebook, input_path, '.html')
+    await _html_to_pdf(
+        html_content,
+        output_path,
+        {'margin': {'top': '20px', 'right': '20px', 'bottom': '20px', 'left': '20px'}},
+    )
     return output_path
 
 async def process_text_code_to_pdf(input_path, output_path, ext):
@@ -774,7 +1559,7 @@ async def process_document_conversion(input_path, output_dir, original_filename,
 
 async def process_document_to_images(input_path, output_zip_path, original_filename):
     """
-    Converts a .pptx or .pdf file into individual PNG page images, then bundles
+    Converts a .ppt, .pptx, .odp, or .pdf file into individual PNG page images, then bundles
     them into a single ZIP file. Returns the path to the generated ZIP.
     
     Steps:
@@ -792,7 +1577,7 @@ async def process_document_to_images(input_path, output_zip_path, original_filen
             # PDF input: use directly, no conversion needed
             pdf_path = input_path
         else:
-            # PPTX input: convert to PDF via LibreOffice first
+            # Presentation input: convert to PDF via LibreOffice first
             pdf_output_dir = os.path.join(temp_dir, 'pdf')
             os.makedirs(pdf_output_dir, exist_ok=True)
             
@@ -824,9 +1609,9 @@ async def process_document_to_images(input_path, output_zip_path, original_filen
                         except FileNotFoundError:
                             continue
                         except subprocess.CalledProcessError:
-                            raise Exception("LibreOffice failed during PPTX-to-PDF conversion.")
+                            raise Exception("LibreOffice failed during presentation-to-PDF conversion.")
                     if not success:
-                        raise Exception("LibreOffice not found. Required for PPTX conversion.")
+                        raise Exception("LibreOffice not found. Required for presentation conversion.")
                 finally:
                     shutil.rmtree(profile_dir, ignore_errors=True)
             
@@ -836,7 +1621,7 @@ async def process_document_to_images(input_path, output_zip_path, original_filen
             input_basename = os.path.splitext(os.path.basename(input_path))[0]
             pdf_path = os.path.join(pdf_output_dir, f"{input_basename}.pdf")
             if not os.path.exists(pdf_path):
-                raise Exception("PDF generation from PPTX failed — no output file created.")
+                raise Exception("PDF generation from presentation failed: no output file created.")
         
         # Step 2: Rasterize PDF pages into PNG images using PyMuPDF at 300 DPI
         original_stem = os.path.splitext(original_filename)[0]
@@ -1034,6 +1819,78 @@ def _render_pdf_page_bytes(page, target_ext):
         return buffer.getvalue()
 
     raise ValueError(f"Unsupported PDF page image target: {target_ext}")
+
+
+def _write_pdf_slide_images(input_path, output_dir, original_filename, target_ext):
+    output_dir = pathlib.Path(output_dir)
+    original_stem = pathlib.Path(original_filename).stem
+    image_target_ext = ".png" if target_ext == ".zip" else target_ext
+    file_ext = ".jpg" if image_target_ext == ".jpeg" else image_target_ext
+
+    with fitz.open(input_path) as doc:
+        if doc.page_count == 0:
+            raise Exception("No slides found in the presentation.")
+
+        try:
+            fitz.TOOLS.mupdf_display_errors(False)
+            fitz.TOOLS.mupdf_display_warnings(False)
+            cat = doc.pdf_catalog()
+            doc.xref_set_key(cat, "StructTreeRoot", "null")
+        except Exception:
+            pass
+
+        if doc.page_count == 1 and target_ext != ".zip":
+            output_path = output_dir / f"{uuid.uuid4()}{file_ext}"
+            output_path.write_bytes(_render_pdf_page_bytes(doc[0], image_target_ext))
+            return ConversionOutput(
+                path=str(output_path),
+                filename=f"{original_stem}_slide_1{file_ext}",
+                media_type=PRESENTATION_MEDIA_TYPES[image_target_ext],
+            )
+
+        output_path = output_dir / f"{uuid.uuid4()}_{original_stem}_slides.zip"
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for index, page in enumerate(doc, start=1):
+                archive.writestr(
+                    f"{original_stem}/slide_{index:04d}{file_ext}",
+                    _render_pdf_page_bytes(page, image_target_ext),
+                )
+
+    if target_ext == ".zip":
+        filename = get_presentation_download_name(original_filename, target_ext)
+    else:
+        filename = f"{original_stem}_{file_ext.lstrip('.')}_slides.zip"
+
+    return ConversionOutput(
+        path=str(output_path),
+        filename=filename,
+        media_type=PRESENTATION_MEDIA_TYPES[".zip"],
+    )
+
+
+async def process_presentation_conversion(input_path, output_dir, original_filename, input_ext, target_ext):
+    output_dir = pathlib.Path(output_dir)
+
+    if target_ext in {".png", ".jpg", ".zip"}:
+        with tempfile.TemporaryDirectory(prefix="presentation_pdf_") as temp_dir:
+            pdf_path = await asyncio.to_thread(_run_libreoffice_convert, input_path, temp_dir, ".pdf")
+            return await asyncio.to_thread(
+                _write_pdf_slide_images,
+                pdf_path,
+                output_dir,
+                original_filename,
+                target_ext,
+            )
+
+    output_path = output_dir / f"{uuid.uuid4()}{target_ext}"
+    converted = await asyncio.to_thread(_run_libreoffice_convert, input_path, str(output_dir), target_ext)
+    shutil.move(converted, output_path)
+
+    return ConversionOutput(
+        path=str(output_path),
+        filename=get_presentation_download_name(original_filename, target_ext),
+        media_type=PRESENTATION_MEDIA_TYPES[target_ext],
+    )
 
 
 def _write_pdf_page_images(input_path, output_dir, original_filename, target_ext):

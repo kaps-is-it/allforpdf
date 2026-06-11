@@ -1,23 +1,31 @@
 import {
   DOCUMENT_CONVERSION_MAP,
+  EBOOK_CONVERSION_MAP,
   IMAGE_CONVERSION_MAP,
+  NOTEBOOK_CONVERSION_MAP,
   PDF_TARGET_OPTIONS,
+  PRESENTATION_CONVERSION_MAP,
+  SPREADSHEET_CONVERSION_MAP,
+  TEXT_DATA_CONVERSION_MAP,
   getDocumentTargetLabel,
+  getEbookTargetLabel,
   getImageTargetLabel,
+  getNotebookTargetLabel,
   getPdfTargetLabel,
+  getPresentationTargetLabel,
+  getSpreadsheetTargetLabel,
+  getTextDataTargetLabel,
 } from './conversions';
 import type { Mode } from '../types/conversion';
 
 const SITE_ORIGIN = (import.meta.env.VITE_SITE_URL || 'https://allforpdf.com').replace(/\/$/, '');
 
 const TO_PDF_INPUT_EXTENSIONS = [
-  '.pptx',
-  '.ppt',
   '.xlsx',
   '.xls',
   '.csv',
   '.ods',
-  '.odp',
+  '.tsv',
   '.ipynb',
   '.py',
   '.js',
@@ -26,6 +34,11 @@ const TO_PDF_INPUT_EXTENSIONS = [
   '.cpp',
   '.css',
   '.json',
+  '.xml',
+  '.yaml',
+  '.yml',
+  '.toml',
+  '.ts',
 ] as const;
 
 const FORMAT_LABELS: Record<string, string> = {
@@ -36,6 +49,9 @@ const FORMAT_LABELS: Record<string, string> = {
   '.css': 'CSS',
   '.doc': 'DOC',
   '.docx': 'DOCX',
+  '.azw3': 'AZW3',
+  '.epub': 'EPUB',
+  '.fb2': 'FB2',
   '.gif': 'GIF',
   '.heic': 'HEIC',
   '.htm': 'HTML',
@@ -48,6 +64,7 @@ const FORMAT_LABELS: Record<string, string> = {
   '.js': 'JavaScript',
   '.json': 'JSON',
   '.md': 'Markdown',
+  '.mobi': 'MOBI',
   '.odp': 'ODP',
   '.ods': 'ODS',
   '.odt': 'ODT',
@@ -61,9 +78,15 @@ const FORMAT_LABELS: Record<string, string> = {
   '.tif': 'TIF',
   '.tiff': 'TIFF',
   '.txt': 'TXT',
+  '.tsv': 'TSV',
+  '.ts': 'TypeScript',
+  '.toml': 'TOML',
   '.webp': 'WEBP',
+  '.xml': 'XML',
   '.xls': 'XLS',
   '.xlsx': 'XLSX',
+  '.yaml': 'YAML',
+  '.yml': 'YAML',
   '.zip': 'ZIP',
 };
 
@@ -84,6 +107,11 @@ export interface SeoPage extends SeoMetadata {
   imageTarget?: string;
   pdfTarget?: string;
   documentTarget?: string;
+  presentationTarget?: string;
+  spreadsheetTarget?: string;
+  textDataTarget?: string;
+  notebookTarget?: string;
+  ebookTarget?: string;
 }
 
 export const DEFAULT_SEO_PAGE: SeoMetadata = {
@@ -126,6 +154,11 @@ function makeConversionPage({
   imageTarget,
   pdfTarget,
   documentTarget,
+  presentationTarget,
+  spreadsheetTarget,
+  textDataTarget,
+  notebookTarget,
+  ebookTarget,
 }: {
   inputExt: string;
   outputLabel: string;
@@ -134,6 +167,11 @@ function makeConversionPage({
   imageTarget?: string;
   pdfTarget?: string;
   documentTarget?: string;
+  presentationTarget?: string;
+  spreadsheetTarget?: string;
+  textDataTarget?: string;
+  notebookTarget?: string;
+  ebookTarget?: string;
 }): SeoPage {
   const inputLabel = labelForFormat(inputExt);
   const canonicalPath = routeFromSlug(slug);
@@ -144,6 +182,11 @@ function makeConversionPage({
     imageTarget,
     pdfTarget,
     documentTarget,
+    presentationTarget,
+    spreadsheetTarget,
+    textDataTarget,
+    notebookTarget,
+    ebookTarget,
     acceptedExts: [inputExt],
     accept: inputExt,
     supportedFormats: `Accepted format: ${inputLabel} files`,
@@ -173,6 +216,16 @@ function pdfTargetSlug(target: string) {
 function pdfOutputLabel(target: string) {
   if (target === '.zip') return 'PNG Pages ZIP';
   return getPdfTargetLabel(target).replace(' page image', '');
+}
+
+function presentationTargetSlug(target: string) {
+  if (target === '.zip') return 'slide-images-zip';
+  return slugToken(target);
+}
+
+function presentationOutputLabel(target: string) {
+  if (target === '.zip') return 'Slide Images ZIP';
+  return getPresentationTargetLabel(target).replace(' slide images', '');
 }
 
 function makePdfToolPage(target: string): SeoPage {
@@ -281,6 +334,62 @@ export function createSeoPages() {
     });
   });
 
+  Object.entries(SPREADSHEET_CONVERSION_MAP).forEach(([inputExt, targets]) => {
+    targets.forEach((targetExt) => {
+      pages.push(
+        makeConversionPage({
+          inputExt,
+          outputLabel: getSpreadsheetTargetLabel(targetExt),
+          slug: `${slugToken(inputExt)}-to-${slugToken(targetExt)}`,
+          mode: 'spreadsheets',
+          spreadsheetTarget: targetExt,
+        }),
+      );
+    });
+  });
+
+  Object.entries(TEXT_DATA_CONVERSION_MAP).forEach(([inputExt, targets]) => {
+    targets.forEach((targetExt) => {
+      pages.push(
+        makeConversionPage({
+          inputExt,
+          outputLabel: getTextDataTargetLabel(targetExt),
+          slug: `${slugToken(inputExt)}-to-${slugToken(targetExt)}`,
+          mode: 'text-data',
+          textDataTarget: targetExt,
+        }),
+      );
+    });
+  });
+
+  Object.entries(NOTEBOOK_CONVERSION_MAP).forEach(([inputExt, targets]) => {
+    targets.forEach((targetExt) => {
+      pages.push(
+        makeConversionPage({
+          inputExt,
+          outputLabel: getNotebookTargetLabel(targetExt),
+          slug: `${slugToken(inputExt)}-to-${slugToken(targetExt)}`,
+          mode: 'notebooks',
+          notebookTarget: targetExt,
+        }),
+      );
+    });
+  });
+
+  Object.entries(EBOOK_CONVERSION_MAP).forEach(([inputExt, targets]) => {
+    targets.forEach((targetExt) => {
+      pages.push(
+        makeConversionPage({
+          inputExt,
+          outputLabel: getEbookTargetLabel(targetExt),
+          slug: `${slugToken(inputExt)}-to-${slugToken(targetExt)}`,
+          mode: 'ebooks',
+          ebookTarget: targetExt,
+        }),
+      );
+    });
+  });
+
   TO_PDF_INPUT_EXTENSIONS.forEach((inputExt) => {
     pages.push(
       makeConversionPage({
@@ -294,6 +403,20 @@ export function createSeoPages() {
 
   PDF_TARGET_OPTIONS.forEach((target) => {
     pages.push(makePdfToolPage(target.value));
+  });
+
+  Object.entries(PRESENTATION_CONVERSION_MAP).forEach(([inputExt, targets]) => {
+    targets.forEach((targetExt) => {
+      pages.push(
+        makeConversionPage({
+          inputExt,
+          outputLabel: presentationOutputLabel(targetExt),
+          slug: `${slugToken(inputExt)}-to-${presentationTargetSlug(targetExt)}`,
+          mode: 'presentations',
+          presentationTarget: targetExt,
+        }),
+      );
+    });
   });
 
   pages.push(makePptxPngPage('.pdf'), makePptxPngPage('.pptx'));

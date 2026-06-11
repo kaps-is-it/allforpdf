@@ -1,5 +1,14 @@
 import type { Mode } from '../types/conversion';
-import { getDocumentTargetLabel, getImageTargetLabel, getPdfTargetLabel } from './conversions';
+import {
+  getDocumentTargetLabel,
+  getEbookTargetLabel,
+  getImageTargetLabel,
+  getNotebookTargetLabel,
+  getPdfTargetLabel,
+  getPresentationTargetLabel,
+  getSpreadsheetTargetLabel,
+  getTextDataTargetLabel,
+} from './conversions';
 
 export function getFileExt(fileOrName: File | string) {
   const name = typeof fileOrName === 'string' ? fileOrName : fileOrName.name;
@@ -11,8 +20,9 @@ export function getIconForExt(ext: string) {
   if (['.pdf'].includes(ext)) return 'bx-file-pdf';
   if (['.docx', '.doc', '.odt', '.rtf'].includes(ext)) return 'bx-file';
   if (['.pptx', '.ppt', '.odp'].includes(ext)) return 'bx-slideshow';
-  if (['.xlsx', '.xls', '.ods', '.csv'].includes(ext)) return 'bx-spreadsheet';
-  if (['.ipynb', '.py', '.js', '.c', '.cpp', '.java', '.json', '.html', '.htm', '.css', '.md', '.txt'].includes(ext)) {
+  if (['.xlsx', '.xls', '.ods', '.csv', '.tsv'].includes(ext)) return 'bx-spreadsheet';
+  if (['.epub', '.mobi', '.azw3', '.fb2'].includes(ext)) return 'bx-book-open';
+  if (['.ipynb', '.py', '.js', '.ts', '.c', '.cpp', '.java', '.json', '.xml', '.yaml', '.yml', '.toml', '.html', '.htm', '.css', '.md', '.txt'].includes(ext)) {
     return 'bx-code-alt';
   }
   if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff', '.tif', '.svg', '.heic', '.ico'].includes(ext)) {
@@ -26,7 +36,12 @@ export function getIconForExt(ext: string) {
 export function getIconForFile(file: File, mode: Mode) {
   const ext = getFileExt(file);
   if (mode === 'documents') return getIconForExt(ext);
+  if (mode === 'spreadsheets') return 'bx-spreadsheet';
+  if (mode === 'text-data') return getIconForExt(ext);
+  if (mode === 'notebooks') return 'bx-book-content';
+  if (mode === 'ebooks') return getIconForExt(ext);
   if (mode === 'pdf-tools') return 'bx-file-pdf';
+  if (mode === 'presentations') return 'bx-slideshow';
   if (mode === 'pptx-png') return ext === '.pdf' ? 'bx-file-pdf' : 'bx-slideshow';
   return getIconForExt(ext);
 }
@@ -38,9 +53,24 @@ export function getOutputNameForImage(file: File, targetExt: string) {
   return `${stem}${targetExt}`;
 }
 
-export function getDownloadLabel(mode: Mode, imageTarget: string, pdfTarget = '', documentTarget = '') {
+export function getDownloadLabel(
+  mode: Mode,
+  imageTarget: string,
+  pdfTarget = '',
+  documentTarget = '',
+  presentationTarget = '',
+  spreadsheetTarget = '',
+  textDataTarget = '',
+  notebookTarget = '',
+  ebookTarget = '',
+) {
   if (mode === 'documents') return `Download ${getDocumentTargetLabel(documentTarget)}`;
+  if (mode === 'spreadsheets') return `Download ${getSpreadsheetTargetLabel(spreadsheetTarget)}`;
+  if (mode === 'text-data') return `Download ${getTextDataTargetLabel(textDataTarget)}`;
+  if (mode === 'notebooks') return `Download ${getNotebookTargetLabel(notebookTarget)}`;
+  if (mode === 'ebooks') return `Download ${getEbookTargetLabel(ebookTarget)}`;
   if (mode === 'pdf-tools') return `Download ${getPdfTargetLabel(pdfTarget)}`;
+  if (mode === 'presentations') return `Download ${getPresentationTargetLabel(presentationTarget)}`;
   if (mode === 'pptx-png') return 'Download ZIP';
   if (mode === 'image') return `Download ${getImageTargetLabel(imageTarget)}`;
   return 'Download PDF';

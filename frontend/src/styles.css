@@ -156,6 +156,104 @@ a {
     line-height: 1.6;
 }
 
+.conversion-search {
+    position: relative;
+    z-index: 5;
+    max-width: 860px;
+    margin: 0 0 24px;
+}
+
+.search-box {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 58px;
+    padding: 0 16px;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+}
+
+.search-box i {
+    color: var(--accent);
+    font-size: 1.45rem;
+}
+
+.search-box input {
+    width: 100%;
+    min-width: 0;
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    outline: 0;
+    font-size: 1.02rem;
+    font-weight: 700;
+}
+
+.search-box input::placeholder {
+    color: #7b8983;
+    font-weight: 600;
+}
+
+.search-results {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    overflow: hidden;
+    background: #ffffff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 22px 58px rgba(22, 32, 27, 0.14);
+}
+
+.search-result {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 13px 15px;
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+}
+
+.search-result:last-child {
+    border-bottom: 0;
+}
+
+.search-result:hover {
+    background: var(--accent-soft);
+}
+
+.search-result span {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.search-result strong {
+    line-height: 1.2;
+}
+
+.search-result small {
+    color: var(--muted);
+    line-height: 1.35;
+}
+
+.search-result > i {
+    color: var(--accent);
+    font-size: 1.25rem;
+}
+
+.search-empty {
+    margin: 0;
+    padding: 14px 15px;
+    color: var(--muted);
+    line-height: 1.45;
+}
+
 .workspace-layout {
     display: grid;
     grid-template-columns: minmax(220px, 260px) minmax(0, 780px) minmax(210px, 300px);
@@ -788,6 +886,34 @@ body.mode-documents {
     --accent-line: #aad8b5;
 }
 
+body.mode-spreadsheets {
+    --accent: #0f766e;
+    --accent-strong: #115e59;
+    --accent-soft: #e3f5f2;
+    --accent-line: #9bd8d0;
+}
+
+body.mode-text-data {
+    --accent: #0b7285;
+    --accent-strong: #075766;
+    --accent-soft: #e3f6f8;
+    --accent-line: #9bd9e0;
+}
+
+body.mode-notebooks {
+    --accent: #7c3aed;
+    --accent-strong: #5b21b6;
+    --accent-soft: #f0e9ff;
+    --accent-line: #c9b6f5;
+}
+
+body.mode-ebooks {
+    --accent: #4d7c0f;
+    --accent-strong: #365d08;
+    --accent-soft: #eef8df;
+    --accent-line: #bddf86;
+}
+
 body.mode-pdf-tools {
     --accent: #2457d6;
     --accent-strong: #173c9b;
@@ -800,6 +926,13 @@ body.mode-image {
     --accent-strong: #075f68;
     --accent-soft: #e4f5f6;
     --accent-line: #a9dce2;
+}
+
+body.mode-presentations {
+    --accent: #b43856;
+    --accent-strong: #84263d;
+    --accent-soft: #fde8ee;
+    --accent-line: #efb3c1;
 }
 
 body.mode-pptx-png {
@@ -838,6 +971,10 @@ body.mode-pptx-png {
 
     .subtitle {
         font-size: 1rem;
+    }
+
+    .conversion-search {
+        max-width: none;
     }
 
     .workspace-layout {
@@ -886,6 +1023,19 @@ body.mode-pptx-png {
 
     .hero-copy h1 {
         font-size: 2.05rem;
+    }
+
+    .search-box {
+        min-height: 54px;
+    }
+
+    .search-box input {
+        font-size: 0.94rem;
+    }
+
+    .search-results {
+        position: static;
+        margin-top: 8px;
     }
 
     .tool-list,

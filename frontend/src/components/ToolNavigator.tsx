@@ -9,6 +9,11 @@ export interface ToolPreset {
   imageTarget?: string;
   pdfTarget?: string;
   documentTarget?: string;
+  presentationTarget?: string;
+  spreadsheetTarget?: string;
+  textDataTarget?: string;
+  notebookTarget?: string;
+  ebookTarget?: string;
 }
 
 interface ToolNavigatorProps {
@@ -16,6 +21,11 @@ interface ToolNavigatorProps {
   imageTarget: string;
   pdfTarget: string;
   documentTarget: string;
+  presentationTarget: string;
+  spreadsheetTarget: string;
+  textDataTarget: string;
+  notebookTarget: string;
+  ebookTarget: string;
   onToolSelect: (preset: ToolPreset) => void;
 }
 
@@ -36,12 +46,52 @@ const PRIMARY_TOOLS: ToolPreset[] = [
     documentTarget: '.pdf',
   },
   {
+    id: 'spreadsheets',
+    title: 'Spreadsheet Converter',
+    description: 'XLSX, XLS, CSV, ODS, TSV',
+    iconClass: 'bx-spreadsheet',
+    mode: 'spreadsheets',
+    spreadsheetTarget: '.pdf',
+  },
+  {
+    id: 'text-data',
+    title: 'Text & Data Converter',
+    description: 'JSON, XML, YAML, TOML, code',
+    iconClass: 'bx-code-curly',
+    mode: 'text-data',
+    textDataTarget: '.pdf',
+  },
+  {
+    id: 'notebooks',
+    title: 'Notebook Converter',
+    description: 'IPYNB to PDF, HTML, PY, MD',
+    iconClass: 'bx-book-content',
+    mode: 'notebooks',
+    notebookTarget: '.pdf',
+  },
+  {
+    id: 'ebooks',
+    title: 'eBook Converter',
+    description: 'EPUB, MOBI, AZW3, FB2, PDF, TXT',
+    iconClass: 'bx-book-open',
+    mode: 'ebooks',
+    ebookTarget: '.epub',
+  },
+  {
     id: 'image-pdf',
     title: 'Image Converter',
     description: 'PNG, JPG, WEBP, SVG, HEIC, ICO',
     iconClass: 'bxs-image-alt',
     mode: 'image',
     imageTarget: '.pdf',
+  },
+  {
+    id: 'presentations',
+    title: 'Presentation Converter',
+    description: 'PPT, PPTX, ODP to PDF, images, ZIP',
+    iconClass: 'bx-slideshow',
+    mode: 'presentations',
+    presentationTarget: '.pdf',
   },
   {
     id: 'page-extract',
@@ -92,15 +142,42 @@ const TOOL_GROUPS = [
   { title: 'PDF Actions', tools: PDF_TOOLS },
 ];
 
-function isActiveTool(preset: ToolPreset, mode: Mode, imageTarget: string, pdfTarget: string, documentTarget: string) {
+function isActiveTool(
+  preset: ToolPreset,
+  mode: Mode,
+  imageTarget: string,
+  pdfTarget: string,
+  documentTarget: string,
+  presentationTarget: string,
+  spreadsheetTarget: string,
+  textDataTarget: string,
+  notebookTarget: string,
+  ebookTarget: string,
+) {
   if (preset.mode !== mode) return false;
   if (preset.imageTarget && preset.imageTarget !== imageTarget) return false;
   if (preset.pdfTarget && preset.pdfTarget !== pdfTarget) return false;
   if (preset.documentTarget && preset.documentTarget !== documentTarget) return false;
+  if (preset.presentationTarget && preset.presentationTarget !== presentationTarget) return false;
+  if (preset.spreadsheetTarget && preset.spreadsheetTarget !== spreadsheetTarget) return false;
+  if (preset.textDataTarget && preset.textDataTarget !== textDataTarget) return false;
+  if (preset.notebookTarget && preset.notebookTarget !== notebookTarget) return false;
+  if (preset.ebookTarget && preset.ebookTarget !== ebookTarget) return false;
   return true;
 }
 
-export function ToolNavigator({ mode, imageTarget, pdfTarget, documentTarget, onToolSelect }: ToolNavigatorProps) {
+export function ToolNavigator({
+  mode,
+  imageTarget,
+  pdfTarget,
+  documentTarget,
+  presentationTarget,
+  spreadsheetTarget,
+  textDataTarget,
+  notebookTarget,
+  ebookTarget,
+  onToolSelect,
+}: ToolNavigatorProps) {
   return (
     <nav className="tool-navigator" aria-label="Conversion tools">
       <div className="tool-navigator-header">
@@ -113,7 +190,7 @@ export function ToolNavigator({ mode, imageTarget, pdfTarget, documentTarget, on
           <div className="tool-list">
             {group.tools.map((tool) => (
               <button
-                className={`tool-card ${isActiveTool(tool, mode, imageTarget, pdfTarget, documentTarget) ? 'active' : ''}`}
+                className={`tool-card ${isActiveTool(tool, mode, imageTarget, pdfTarget, documentTarget, presentationTarget, spreadsheetTarget, textDataTarget, notebookTarget, ebookTarget) ? 'active' : ''}`}
                 key={tool.id}
                 type="button"
                 onClick={() => onToolSelect(tool)}

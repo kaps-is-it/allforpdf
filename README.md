@@ -50,7 +50,9 @@ npm run build
 - `GET /api/document-conversions`
 - `GET /api/image-conversions`
 - `GET /api/pdf-conversions`
+- `GET /api/presentation-conversions`
 - `POST /api/convert-pdf`
+- `POST /api/convert-presentation`
 - `POST /api/merge-pdfs`
 - `POST /api/convert-pptx-images`
 - `GET /health`

@@ -7,9 +7,25 @@ interface FileCardProps {
   imageTarget: string;
   pdfTarget?: string;
   documentTarget?: string;
+  presentationTarget?: string;
+  spreadsheetTarget?: string;
+  textDataTarget?: string;
+  notebookTarget?: string;
+  ebookTarget?: string;
 }
 
-export function FileCard({ item, mode, imageTarget, pdfTarget, documentTarget }: FileCardProps) {
+export function FileCard({
+  item,
+  mode,
+  imageTarget,
+  pdfTarget,
+  documentTarget,
+  presentationTarget,
+  spreadsheetTarget,
+  textDataTarget,
+  notebookTarget,
+  ebookTarget,
+}: FileCardProps) {
   return (
     <div className="file-item">
       <div className="file-info">
@@ -25,7 +41,18 @@ export function FileCard({ item, mode, imageTarget, pdfTarget, documentTarget }:
       <div className="file-actions">
         {item.state === 'success' && item.downloadUrl && item.downloadName ? (
           <a href={item.downloadUrl} download={item.downloadName} className="btn-download">
-            <i className="bx bx-download" /> {getDownloadLabel(mode, imageTarget, pdfTarget, documentTarget)}
+            <i className="bx bx-download" />{' '}
+            {getDownloadLabel(
+              mode,
+              imageTarget,
+              pdfTarget,
+              documentTarget,
+              presentationTarget,
+              spreadsheetTarget,
+              textDataTarget,
+              notebookTarget,
+              ebookTarget,
+            )}
           </a>
         ) : (
           <button className="btn-download" type="button" disabled>

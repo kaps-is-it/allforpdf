@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+  <description>
+    <title-info>
+      <book-title>Converti FB2 Fixture</book-title>
+      <author>
+        <first-name>Converti</first-name>
+        <last-name>Tests</last-name>
+      </author>
+    </title-info>
+  </description>
+  <body>
+    <section>
+      <title><p>Converti FB2 Fixture</p></title>
+      <p>Converti eBook fixture content.</p>
+      <p>This file is intentionally small for conversion tests.</p>
+    </section>
+  </body>
+</FictionBook>

@@ -11,13 +11,11 @@ const siteOrigin = (process.env.VITE_SITE_URL || 'https://allforpdf.com').replac
 const conversionData = JSON.parse(await readFile(dataPath, 'utf8'));
 
 const toPdfInputExtensions = [
-  '.pptx',
-  '.ppt',
   '.xlsx',
   '.xls',
   '.csv',
   '.ods',
-  '.odp',
+  '.tsv',
   '.ipynb',
   '.py',
   '.js',
@@ -26,6 +24,11 @@ const toPdfInputExtensions = [
   '.cpp',
   '.css',
   '.json',
+  '.xml',
+  '.yaml',
+  '.yml',
+  '.toml',
+  '.ts',
 ];
 
 const formatLabels = {
@@ -36,6 +39,9 @@ const formatLabels = {
   '.css': 'CSS',
   '.doc': 'DOC',
   '.docx': 'DOCX',
+  '.azw3': 'AZW3',
+  '.epub': 'EPUB',
+  '.fb2': 'FB2',
   '.gif': 'GIF',
   '.heic': 'HEIC',
   '.htm': 'HTML',
@@ -48,6 +54,7 @@ const formatLabels = {
   '.js': 'JavaScript',
   '.json': 'JSON',
   '.md': 'Markdown',
+  '.mobi': 'MOBI',
   '.odp': 'ODP',
   '.ods': 'ODS',
   '.odt': 'ODT',
@@ -61,9 +68,15 @@ const formatLabels = {
   '.tif': 'TIF',
   '.tiff': 'TIFF',
   '.txt': 'TXT',
+  '.tsv': 'TSV',
+  '.ts': 'TypeScript',
+  '.toml': 'TOML',
   '.webp': 'WEBP',
+  '.xml': 'XML',
   '.xls': 'XLS',
   '.xlsx': 'XLSX',
+  '.yaml': 'YAML',
+  '.yml': 'YAML',
   '.zip': 'ZIP',
 };
 
@@ -124,6 +137,16 @@ function pdfTargetSlug(target) {
 function pdfOutputLabel(target) {
   if (target === '.zip') return 'PNG Pages ZIP';
   return optionLabel(conversionData.pdfTargetOptions, target).replace(' page image', '');
+}
+
+function presentationTargetSlug(target) {
+  if (target === '.zip') return 'slide-images-zip';
+  return slugToken(target);
+}
+
+function presentationOutputLabel(target) {
+  if (target === '.zip') return 'Slide Images ZIP';
+  return optionLabel(conversionData.presentationTargetOptions, target).replace(' slide images', '');
 }
 
 function makePdfToolPage(target) {
@@ -203,6 +226,54 @@ function createSeoPages() {
     });
   });
 
+  Object.entries(conversionData.spreadsheetConversionMap).forEach(([inputExt, targets]) => {
+    targets.forEach((targetExt) => {
+      pages.push(
+        makeConversionPage({
+          inputExt,
+          outputLabel: optionLabel(conversionData.spreadsheetTargetOptions, targetExt),
+          slug: `${slugToken(inputExt)}-to-${slugToken(targetExt)}`,
+        }),
+      );
+    });
+  });
+
+  Object.entries(conversionData.textDataConversionMap).forEach(([inputExt, targets]) => {
+    targets.forEach((targetExt) => {
+      pages.push(
+        makeConversionPage({
+          inputExt,
+          outputLabel: optionLabel(conversionData.textDataTargetOptions, targetExt),
+          slug: `${slugToken(inputExt)}-to-${slugToken(targetExt)}`,
+        }),
+      );
+    });
+  });
+
+  Object.entries(conversionData.notebookConversionMap).forEach(([inputExt, targets]) => {
+    targets.forEach((targetExt) => {
+      pages.push(
+        makeConversionPage({
+          inputExt,
+          outputLabel: optionLabel(conversionData.notebookTargetOptions, targetExt),
+          slug: `${slugToken(inputExt)}-to-${slugToken(targetExt)}`,
+        }),
+      );
+    });
+  });
+
+  Object.entries(conversionData.ebookConversionMap).forEach(([inputExt, targets]) => {
+    targets.forEach((targetExt) => {
+      pages.push(
+        makeConversionPage({
+          inputExt,
+          outputLabel: optionLabel(conversionData.ebookTargetOptions, targetExt),
+          slug: `${slugToken(inputExt)}-to-${slugToken(targetExt)}`,
+        }),
+      );
+    });
+  });
+
   toPdfInputExtensions.forEach((inputExt) => {
     pages.push(
       makeConversionPage({
@@ -215,6 +286,18 @@ function createSeoPages() {
 
   conversionData.pdfTargetOptions.forEach((target) => {
     pages.push(makePdfToolPage(target.value));
+  });
+
+  Object.entries(conversionData.presentationConversionMap).forEach(([inputExt, targets]) => {
+    targets.forEach((targetExt) => {
+      pages.push(
+        makeConversionPage({
+          inputExt,
+          outputLabel: presentationOutputLabel(targetExt),
+          slug: `${slugToken(inputExt)}-to-${presentationTargetSlug(targetExt)}`,
+        }),
+      );
+    });
   });
 
   pages.push(makePptxPngPage('.pdf'), makePptxPngPage('.pptx'));
